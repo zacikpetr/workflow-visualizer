@@ -1,0 +1,190 @@
+{
+  "id": "exampleOrderProcessing",
+  "specVersion": "0.8",
+  "version": "0.1.0",
+  "name": "Example Order Processing Workflow",
+  "description": "Generic example used for the plugin's documentation screenshots. Covers state types (operation / event / switch), expression-driven state mutations, event timeouts, error recovery, an end state, and one unreachable orphan to demonstrate dead-code detection.",
+  "start": "submitOrder",
+
+  "errors": [
+    { "name": "validationFailed", "code": "java.lang.IllegalArgumentException" },
+    { "name": "paymentFailed",    "code": "com.example.PaymentException" },
+    { "name": "shippingFailed",   "code": "com.example.ShippingException" }
+  ],
+
+  "events": [
+    { "name": "paymentReceived",     "source": "payments.events",  "type": "com.example.payment.received" },
+    { "name": "paymentExpired",      "source": "payments.events",  "type": "com.example.payment.expired" },
+    { "name": "transferReceived",    "source": "payments.events",  "type": "com.example.transfer.received" },
+    { "name": "shipped",             "source": "shipping.events",  "type": "com.example.shipping.shipped" },
+    { "name": "shippingFailedEvent", "source": "shipping.events",  "type": "com.example.shipping.failed" },
+    { "name": "inventoryRestocked",  "source": "inventory.events", "type": "com.example.inventory.restocked" }
+  ],
+
+  "functions": [
+    { "name": "setActiveState",      "type": "expression", "operation": "{ state: \"ACTIVE\" }" },
+    { "name": "setValidationPhase",  "type": "expression", "operation": "{ phase: \"VALIDATION\" }" },
+    { "name": "setPaymentPhase",     "type": "expression", "operation": "{ phase: \"PAYMENT\" }" },
+    { "name": "setShippingPhase",    "type": "expression", "operation": "{ phase: \"SHIPPING\" }" },
+    { "name": "setBackorderPhase",   "type": "expression", "operation": "{ phase: \"BACKORDER\", continuationPoint: \"AWAIT_RESTOCK\" }" },
+    { "name": "setCompletedState",   "type": "expression", "operation": "{ state: \"COMPLETED\", phase: \"DONE\" }" },
+    { "name": "setCancelledState",   "type": "expression", "operation": "{ state: \"CANCELLED\" }" },
+    { "name": "setErrorResolution",  "type": "expression", "operation": "{ state: \"ERROR_RESOLUTION\", continuationPoint: \"VALIDATE_ORDER\" }" },
+    { "name": "validateOrderApi",        "operation": "functions.yaml#validateOrder" },
+    { "name": "chargeCustomer",          "operation": "functions.yaml#chargeCustomer" },
+    { "name": "allocateInventory",       "operation": "functions.yaml#allocateInventory" },
+    { "name": "requestPaymentMethod",    "operation": "functions.yaml#requestPaymentMethod" },
+    { "name": "notifyCustomerSuccess",   "operation": "functions.yaml#notifyCustomerSuccess" },
+    { "name": "notifyCustomerBackorder", "operation": "functions.yaml#notifyCustomerBackorder" },
+    { "name": "refundCustomer",          "operation": "functions.yaml#refundCustomer" },
+    { "name": "notifyOps",               "operation": "functions.yaml#notifyOps" }
+  ],
+
+  "states": [
+    {
+      "name": "submitOrder",
+      "type": "operation",
+      "actions": [
+        { "name": "markActive", "functionRef": "setActiveState" },
+        { "name": "validate",   "functionRef": "validateOrderApi" }
+      ],
+      "transition": "validateOrder",
+      "onErrors": [
+        { "errorRef": "validationFailed", "transition": "errorRecovery" }
+      ]
+    },
+    {
+      "name": "validateOrder",
+      "type": "operation",
+      "actions": [
+        { "name": "setPhase", "functionRef": "setValidationPhase" }
+      ],
+      "transition": "checkPaymentMethod"
+    },
+    {
+      "name": "checkPaymentMethod",
+      "type": "switch",
+      "dataConditions": [
+        { "name": "card",     "condition": "${ .order.paymentMethod == \"card\" }",     "transition": "awaitCardPayment" },
+        { "name": "transfer", "condition": "${ .order.paymentMethod == \"transfer\" }", "transition": "awaitTransfer" }
+      ],
+      "defaultCondition": { "transition": "paymentMethodMissing" }
+    },
+    {
+      "name": "awaitCardPayment",
+      "type": "event",
+      "timeouts": { "stateExecTimeout": "PT15M" },
+      "eventConditions": [
+        { "eventRef": "paymentReceived", "transition": "processPayment" },
+        { "eventRef": "paymentExpired",  "transition": "cancelExpiredOrder" }
+      ]
+    },
+    {
+      "name": "awaitTransfer",
+      "type": "event",
+      "timeouts": { "stateExecTimeout": "PT24H" },
+      "eventConditions": [
+        { "eventRef": "transferReceived", "transition": "processPayment" }
+      ]
+    },
+    {
+      "name": "processPayment",
+      "type": "operation",
+      "actions": [
+        { "name": "setPhase", "functionRef": "setPaymentPhase" },
+        { "name": "charge",   "functionRef": "chargeCustomer" }
+      ],
+      "transition": "checkInventory",
+      "onErrors": [
+        { "errorRef": "paymentFailed", "transition": "errorRecovery" }
+      ]
+    },
+    {
+      "name": "checkInventory",
+      "type": "switch",
+      "dataConditions": [
+        { "name": "inStock", "condition": "${ .order.inStock == true }", "transition": "prepareShipment" }
+      ],
+      "defaultCondition": { "transition": "backorder" }
+    },
+    {
+      "name": "prepareShipment",
+      "type": "operation",
+      "actions": [
+        { "name": "setPhase",  "functionRef": "setShippingPhase" },
+        { "name": "allocate",  "functionRef": "allocateInventory" }
+      ],
+      "transition": "awaitShipping",
+      "onErrors": [
+        { "errorRef": "shippingFailed", "transition": "errorRecovery" }
+      ]
+    },
+    {
+      "name": "awaitShipping",
+      "type": "event",
+      "timeouts": { "stateExecTimeout": "PT7D" },
+      "eventConditions": [
+        { "eventRef": "shipped",             "transition": "confirmShipping" },
+        { "eventRef": "shippingFailedEvent", "transition": "errorRecovery" }
+      ]
+    },
+    {
+      "name": "confirmShipping",
+      "type": "operation",
+      "actions": [
+        { "name": "complete", "functionRef": "setCompletedState" },
+        { "name": "notify",   "functionRef": "notifyCustomerSuccess" }
+      ],
+      "end": true
+    },
+    {
+      "name": "backorder",
+      "type": "operation",
+      "actions": [
+        { "name": "setPhase", "functionRef": "setBackorderPhase" },
+        { "name": "notify",   "functionRef": "notifyCustomerBackorder" }
+      ],
+      "transition": "awaitRestock"
+    },
+    {
+      "name": "awaitRestock",
+      "type": "event",
+      "timeouts": { "stateExecTimeout": "PT30D" },
+      "eventConditions": [
+        { "eventRef": "inventoryRestocked", "transition": "prepareShipment" }
+      ]
+    },
+    {
+      "name": "cancelExpiredOrder",
+      "type": "operation",
+      "actions": [
+        { "name": "cancel", "functionRef": "setCancelledState" },
+        { "name": "refund", "functionRef": "refundCustomer" }
+      ],
+      "end": true
+    },
+    {
+      "name": "paymentMethodMissing",
+      "type": "operation",
+      "actions": [
+        { "name": "request", "functionRef": "requestPaymentMethod" }
+      ],
+      "transition": "validateOrder"
+    },
+    {
+      "name": "errorRecovery",
+      "type": "operation",
+      "actions": [
+        { "name": "resolve", "functionRef": "setErrorResolution" },
+        { "name": "notify",  "functionRef": "notifyOps" }
+      ],
+      "transition": "validateOrder"
+    },
+    {
+      "name": "legacyApprovalReview",
+      "type": "operation",
+      "actions": [],
+      "end": true
+    }
+  ]
+}

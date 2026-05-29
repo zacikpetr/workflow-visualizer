@@ -1,0 +1,59 @@
+Workflow Visualizer
+Copyright (C) 2026 Petr Žáčík <zacik.petr@gmail.com>
+
+This plugin is licensed under the GNU General Public License, version 3.0
+(GPLv3). The full text of the licence is in the LICENSE file.
+
+Source code is included in this repository alongside the binary distribution
+(the released ZIPs under GitHub Releases). This satisfies GPLv3 §6(a) — the
+corresponding source accompanies every distributed binary.
+
+
+────────────────────────────  Bundled software  ────────────────────────────
+
+This distribution bundles the following third-party libraries inside the
+plugin ZIP. Their original licences and notices are preserved inside their
+respective JAR files under META-INF/.
+
+PlantUML (plantuml-1.2024.8.jar)
+    Licence : GPLv3
+    URL     : https://plantuml.com/
+    Note    : Plugin's GPLv3 licence is inherited from PlantUML.
+
+Apache Batik 1.17 (batik-*.jar, xmlgraphics-commons-2.9.jar, xml-apis-ext-1.3.04.jar)
+    Licence : Apache License 2.0
+    URL     : https://xmlgraphics.apache.org/batik/
+    Notice  : Apache Batik, Copyright 1999-2023 The Apache Software Foundation.
+
+Google Gson 2.10.1 (gson-2.10.1.jar)
+    Licence : Apache License 2.0
+    URL     : https://github.com/google/gson
+
+Google Guava 33.6.0-jre (guava-*.jar, failureaccess-*.jar, listenablefuture-*.jar)
+    Licence : Apache License 2.0
+    URL     : https://github.com/google/guava
+
+Apache Commons IO 2.11.0 (commons-io-2.11.0.jar)
+    Licence : Apache License 2.0
+    URL     : https://commons.apache.org/proper/commons-io/
+
+Apache Commons Logging 1.0.4 (commons-logging-1.0.4.jar)
+    Licence : Apache License 2.0
+    URL     : https://commons.apache.org/proper/commons-logging/
+
+Eclipse ELK 0.9.1 + EMF 2.12.0 (org.eclipse.elk.*.jar, org.eclipse.emf.*.jar)
+    Licence : Eclipse Public License 2.0 (with the secondary-licence clause
+              that makes it compatible with GPLv3).
+    URL     : https://www.eclipse.org/elk/
+
+JLaTeXMath 1.0.7 (jlatexmath-*.jar)
+    Licence : GPLv2-or-later with Classpath Exception (bundled via PlantUML).
+    URL     : https://github.com/opencollab/jlatexmath
+
+JSpecify 1.0.0 (jspecify-1.0.0.jar)
+    Licence : Apache License 2.0
+    URL     : https://jspecify.dev/
+
+Error Prone Annotations 2.47.0 (error_prone_annotations-2.47.0.jar)
+    Licence : Apache License 2.0
+    URL     : https://errorprone.info/

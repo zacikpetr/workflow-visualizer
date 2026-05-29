@@ -1,0 +1,138 @@
+<idea-plugin>
+    <id>tech.zacik.workflowviz</id>
+    <name>Workflow Visualizer</name>
+    <vendor email="zacik.petr@gmail.com">Petr Žáčík</vendor>
+    <description><![CDATA[
+        IDE-native preview and analysis for <a href="https://serverlessworkflow.io/">Serverless Workflow</a>
+        (<code>.sw.json</code>) files. Renders the workflow as a PlantUML state diagram
+        in a side tool window — no browser, no Graphviz, no external server.
+
+        <h3>Features</h3>
+        <ul>
+          <li>Live diagram re-render on every edit; zoom and pan.</li>
+          <li>Bidirectional navigation: click a state in the diagram → caret jumps to its
+              definition; move the caret in the JSON → diagram highlights the matching state.</li>
+          <li>PSI references for <code>transition</code> / <code>functionRef</code> /
+              <code>eventRef</code> / <code>errorRef</code> — Go to Declaration, Find Usages,
+              Rename refactoring.</li>
+          <li>Gutter icons with usage count + descriptive popup showing each call site.</li>
+          <li>Inline documentation preview on hover / Quick Documentation.</li>
+          <li>Inspections: missing / duplicate / unreachable / unused / terminal-less,
+              switch-without-default, event-without-timeout, plus quick-fixes.</li>
+          <li>Mutation badges: per-state breakdown of the runtime fields each
+              action sets (configurable list).</li>
+          <li>Diagram dim for unreachable states + their outgoing edges.</li>
+          <li>Semantic coloring of references and state names by type (configurable
+              palette via Settings → Editor → Color Scheme).</li>
+          <li>Toolbar: Fit to window, Export as SVG, Export as PUML.</li>
+        </ul>
+    ]]></description>
+    <change-notes><![CDATA[
+        <b>0.1.0</b> — Initial release.
+    ]]></change-notes>
+
+    <depends>com.intellij.modules.platform</depends>
+    <depends>com.intellij.modules.json</depends>
+
+    <extensions defaultExtensionNs="com.intellij">
+        <!-- Application-level settings (Settings → Tools → Workflow Visualizer). -->
+        <applicationService serviceImplementation="tech.zacik.workflowviz.settings.WorkflowVizSettings"/>
+        <applicationConfigurable parentId="tools"
+                                 id="tech.zacik.workflowviz.settings"
+                                 displayName="Workflow Visualizer"
+                                 instance="tech.zacik.workflowviz.settings.WorkflowVizConfigurable"/>
+
+        <toolWindow id="Workflow Visualizer"
+                    anchor="right"
+                    icon="AllIcons.FileTypes.Json"
+                    factoryClass="tech.zacik.workflowviz.WorkflowDiagramToolWindowFactory"/>
+
+        <!-- PSI references in .sw.json: transition / functionRef / eventRef / errorRef
+             targeting their definitions in states[] / functions[] / events[] / errors[].
+             Enables Ctrl+B (Go to Declaration), Find Usages and Rename refactoring. -->
+        <psi.referenceContributor language="JSON"
+                                  implementation="tech.zacik.workflowviz.refs.WorkflowReferenceContributor"/>
+
+        <!-- Gutter icon with usage count on the `"name"` of each definition. -->
+        <codeInsight.lineMarkerProvider language="JSON"
+                                        implementationClass="tech.zacik.workflowviz.refs.WorkflowLineMarkerProvider"/>
+
+        <!-- Cmd+hover / Ctrl+Q over a reference shows the target definition
+             body inline instead of forcing a jump to the source. -->
+        <lang.documentationProvider language="JSON"
+                                    implementationClass="tech.zacik.workflowviz.refs.WorkflowDocumentationProvider"/>
+
+        <!-- Semantic colouring (references + state names by type) for .sw.json.
+             Toggleable via Settings → Tools → Workflow Visualizer; rebindable via
+             Settings → Editor → Color Scheme → Workflow Visualizer. -->
+        <annotator language="JSON"
+                   implementationClass="tech.zacik.workflowviz.highlight.WorkflowAnnotator"/>
+        <colorSettingsPage implementation="tech.zacik.workflowviz.highlight.WorkflowColorSettingsPage"/>
+
+        <!-- Veto JsonSchemaCompliance for *.sw.json. Schemastore.org auto-binds
+             the Serverless Workflow v1.0 schema (do/document top-level), which
+             doesn't match our v0.8 documents → noisy false "Missing required
+             properties" on every file. See WorkflowSchemaSuppressor for context. -->
+        <json.jsonSchemaEnabler implementation="tech.zacik.workflowviz.inspections.WorkflowSchemaSuppressor"/>
+
+        <!-- Inspections ported from the standalone Python workflow validator.
+             Each is independently toggleable under Settings → Editor → Inspections
+             → Serverless Workflow. -->
+        <localInspection language="JSON"
+                         shortName="WorkflowUnresolvedReference"
+                         displayName="Missing state / function / event / error definition"
+                         groupName="Serverless Workflow"
+                         enabledByDefault="true"
+                         level="ERROR"
+                         implementationClass="tech.zacik.workflowviz.inspections.WorkflowUnresolvedReferenceInspection"/>
+        <localInspection language="JSON"
+                         shortName="WorkflowDuplicateNames"
+                         displayName="Duplicate state / function / event / error name"
+                         groupName="Serverless Workflow"
+                         enabledByDefault="true"
+                         level="ERROR"
+                         implementationClass="tech.zacik.workflowviz.inspections.DuplicateNamesInspection"/>
+        <localInspection language="JSON"
+                         shortName="WorkflowStartState"
+                         displayName="Missing 'start' state"
+                         groupName="Serverless Workflow"
+                         enabledByDefault="true"
+                         level="ERROR"
+                         implementationClass="tech.zacik.workflowviz.inspections.StartStateInspection"/>
+        <localInspection language="JSON"
+                         shortName="WorkflowSwitchDefault"
+                         displayName="Switch state without defaultCondition"
+                         groupName="Serverless Workflow"
+                         enabledByDefault="true"
+                         level="WARNING"
+                         implementationClass="tech.zacik.workflowviz.inspections.SwitchDefaultInspection"/>
+        <localInspection language="JSON"
+                         shortName="WorkflowEventTimeout"
+                         displayName="Event state without timeout"
+                         groupName="Serverless Workflow"
+                         enabledByDefault="true"
+                         level="WARNING"
+                         implementationClass="tech.zacik.workflowviz.inspections.EventTimeoutInspection"/>
+        <localInspection language="JSON"
+                         shortName="WorkflowTerminalStates"
+                         displayName="Workflow has no terminal state"
+                         groupName="Serverless Workflow"
+                         enabledByDefault="true"
+                         level="ERROR"
+                         implementationClass="tech.zacik.workflowviz.inspections.TerminalStatesInspection"/>
+        <localInspection language="JSON"
+                         shortName="WorkflowUnreachableStates"
+                         displayName="Unreachable state"
+                         groupName="Serverless Workflow"
+                         enabledByDefault="true"
+                         level="ERROR"
+                         implementationClass="tech.zacik.workflowviz.inspections.UnreachableStatesInspection"/>
+        <localInspection language="JSON"
+                         shortName="WorkflowUnusedStates"
+                         displayName="Unused state"
+                         groupName="Serverless Workflow"
+                         enabledByDefault="true"
+                         level="ERROR"
+                         implementationClass="tech.zacik.workflowviz.inspections.UnusedStatesInspection"/>
+    </extensions>
+</idea-plugin>

@@ -1,0 +1,89 @@
+package tech.zacik.workflowviz
+
+import com.intellij.icons.AllIcons
+import com.intellij.openapi.actionSystem.ActionUpdateThread
+import com.intellij.openapi.actionSystem.AnAction
+import com.intellij.openapi.actionSystem.AnActionEvent
+import com.intellij.openapi.fileChooser.FileChooserFactory
+import com.intellij.openapi.fileChooser.FileSaverDescriptor
+import com.intellij.openapi.project.Project
+import com.intellij.openapi.vfs.VirtualFile
+import java.io.File
+import javax.swing.Icon
+
+/**
+ * Toolbar action factories for the Workflow Visualizer tool window.
+ *
+ * Actions take **suppliers** rather than direct strings — the toolbar is built
+ * once at startup, but the diagram (SVG / PUML) changes every keystroke, so the
+ * action must pull the latest value at click time. Each supplier returns
+ * `null` when no diagram is rendered yet; `update()` mirrors that into a
+ * disabled toolbar button.
+ */
+
+/** Snap zoom/pan back to "fit the whole diagram" without changing the document. */
+class FitToWindowAction(private val panel: DiagramPanel) : AnAction(
+    "Fit to Window",
+    "Reset zoom and pan so the whole diagram fits the viewport",
+    AllIcons.General.FitContent,
+) {
+    override fun actionPerformed(e: AnActionEvent) = panel.fitToWindow()
+    override fun getActionUpdateThread(): ActionUpdateThread = ActionUpdateThread.EDT
+}
+
+/** Save the rendered SVG of the current diagram to a file. */
+class ExportSvgAction(private val svgSupplier: () -> String?) : ExportFileAction(
+    text = "Export as SVG…",
+    description = "Save the current diagram as an SVG file",
+    icon = AllIcons.ToolbarDecorator.Export,
+    defaultFileName = "diagram.svg",
+    extension = "svg",
+    saveDialogTitle = "Export Diagram as SVG",
+    contentSupplier = svgSupplier,
+)
+
+/** Save the underlying PlantUML source of the current diagram to a file. */
+class ExportPumlAction(private val pumlSupplier: () -> String?) : ExportFileAction(
+    text = "Export as PUML…",
+    description = "Save the PlantUML source of the current diagram to a file",
+    icon = AllIcons.ToolbarDecorator.Export,
+    defaultFileName = "diagram.puml",
+    extension = "puml",
+    saveDialogTitle = "Export Diagram as PUML",
+    contentSupplier = pumlSupplier,
+)
+
+/**
+ * Shared scaffolding for "export current diagram → save dialog → write file".
+ * Lives here (not duplicated per action) because SVG and PUML differ only in
+ * extension, file name, and which buffer is read.
+ */
+abstract class ExportFileAction(
+    text: String,
+    description: String,
+    icon: Icon,
+    private val defaultFileName: String,
+    private val extension: String,
+    private val saveDialogTitle: String,
+    private val contentSupplier: () -> String?,
+) : AnAction(text, description, icon) {
+
+    final override fun actionPerformed(e: AnActionEvent) {
+        val content = contentSupplier() ?: return
+        val file = chooseFile(e.project) ?: return
+        file.writeText(content)
+    }
+
+    final override fun update(e: AnActionEvent) {
+        // Disable the button until there's actually something to export.
+        e.presentation.isEnabled = contentSupplier() != null
+    }
+
+    final override fun getActionUpdateThread(): ActionUpdateThread = ActionUpdateThread.EDT
+
+    private fun chooseFile(project: Project?): File? {
+        val descriptor = FileSaverDescriptor(saveDialogTitle, "", extension)
+        val dialog = FileChooserFactory.getInstance().createSaveFileDialog(descriptor, project)
+        return dialog.save(null as VirtualFile?, defaultFileName)?.file
+    }
+}
