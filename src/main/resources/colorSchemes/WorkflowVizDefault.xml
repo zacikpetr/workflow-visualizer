@@ -1,0 +1,94 @@
+<scheme name="Default" version="142" parent_scheme="Default">
+  <attributes>
+    <!-- Darker variants of the diagram palette for contrast on a light background. -->
+    <!-- References: category hue, italic ("this is a link"). -->
+    <option name="WORKFLOW_STATE_REFERENCE">
+      <value>
+        <option name="FOREGROUND" value="3f7d56"/>
+        <option name="FONT_TYPE" value="2"/>
+      </value>
+    </option>
+    <option name="WORKFLOW_FUNCTION_REFERENCE">
+      <value>
+        <option name="FOREGROUND" value="2a7a7a"/>
+        <option name="FONT_TYPE" value="2"/>
+      </value>
+    </option>
+    <option name="WORKFLOW_EVENT_REFERENCE">
+      <value>
+        <option name="FOREGROUND" value="2f6fb0"/>
+        <option name="FONT_TYPE" value="2"/>
+      </value>
+    </option>
+    <option name="WORKFLOW_ERROR_REFERENCE">
+      <value>
+        <option name="FOREGROUND" value="b03535"/>
+        <option name="FONT_TYPE" value="2"/>
+      </value>
+    </option>
+
+    <!-- Definitions: same category hue, bold (the source of truth stands out). -->
+    <option name="WORKFLOW_FUNCTION_NAME">
+      <value>
+        <option name="FOREGROUND" value="2a7a7a"/>
+        <option name="FONT_TYPE" value="1"/>
+      </value>
+    </option>
+    <option name="WORKFLOW_EVENT_NAME">
+      <value>
+        <option name="FOREGROUND" value="2f6fb0"/>
+        <option name="FONT_TYPE" value="1"/>
+      </value>
+    </option>
+    <option name="WORKFLOW_ERROR_NAME">
+      <value>
+        <option name="FOREGROUND" value="b03535"/>
+        <option name="FONT_TYPE" value="1"/>
+      </value>
+    </option>
+
+    <!-- State name definitions, tinted by type to mirror the diagram palette. -->
+    <option name="WORKFLOW_STATE_NAME_OPERATION">
+      <value>
+        <option name="FOREGROUND" value="3f7d56"/>
+        <option name="FONT_TYPE" value="1"/>
+      </value>
+    </option>
+    <option name="WORKFLOW_STATE_NAME_SWITCH">
+      <value>
+        <option name="FOREGROUND" value="8a6d1a"/>
+        <option name="FONT_TYPE" value="1"/>
+      </value>
+    </option>
+    <option name="WORKFLOW_STATE_NAME_EVENT">
+      <value>
+        <option name="FOREGROUND" value="2f6fb0"/>
+        <option name="FONT_TYPE" value="1"/>
+      </value>
+    </option>
+    <option name="WORKFLOW_STATE_NAME_FOREACH">
+      <value>
+        <option name="FOREGROUND" value="6f4f99"/>
+        <option name="FONT_TYPE" value="1"/>
+      </value>
+    </option>
+    <option name="WORKFLOW_STATE_NAME_START">
+      <value>
+        <option name="FOREGROUND" value="2f7a4e"/>
+        <option name="FONT_TYPE" value="1"/>
+      </value>
+    </option>
+    <option name="WORKFLOW_STATE_NAME_END">
+      <value>
+        <option name="FOREGROUND" value="b85c5c"/>
+        <option name="FONT_TYPE" value="1"/>
+      </value>
+    </option>
+    <option name="WORKFLOW_STATE_NAME">
+      <value>
+        <option name="FOREGROUND" value="3f7d56"/>
+        <option name="FONT_TYPE" value="1"/>
+      </value>
+    </option>
+  </attributes>
+</scheme>

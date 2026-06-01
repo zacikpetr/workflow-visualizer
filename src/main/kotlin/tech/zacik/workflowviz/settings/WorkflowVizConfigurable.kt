@@ -53,7 +53,7 @@ class WorkflowVizConfigurable : BoundConfigurable("Workflow Visualizer") {
                 }
                 row {
                     checkBox("Dim unreachable states")
-                        .comment("Grey out states (and their outgoing edges) that BFS from <code>start</code> can't reach.")
+                        .comment("Gray out states (and their outgoing edges) that BFS from <code>start</code> can't reach.")
                         .bindSelected(state::dimUnreachable)
                 }
             }

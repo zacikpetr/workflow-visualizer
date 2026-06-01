@@ -26,7 +26,7 @@ added, the IDE installs and auto-updates the plugin like any marketplace plugin.
    check.)
 4. Restart the IDE when prompted.
 
-Compatible with IntelliJ IDEA Community / Ultimate **2023.3 and later**
+Compatible with IntelliJ IDEA Community / Ultimate **2025.2 and later**
 (no upper version bound).
 
 ---

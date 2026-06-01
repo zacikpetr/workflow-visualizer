@@ -15,26 +15,22 @@
 <plugins>
     <plugin
             id="tech.zacik.workflowviz"
-            url="https://github.com/zacikpetr/workflow-visualizer/releases/download/v0.1.0/workflow-visualizer-0.1.0.zip"
-            version="0.1.0">
-        <idea-version since-build="233"/>
+            url="https://github.com/zacikpetr/workflow-visualizer/releases/download/v0.2.0/workflow-visualizer-0.2.0.zip"
+            version="0.2.0">
+        <idea-version since-build="252"/>
         <name>Workflow Visualizer</name>
         <vendor email="zacik.petr@gmail.com" url="https://github.com/zacikpetr/workflow-visualizer">Petr Žáčík</vendor>
         <description><![CDATA[
-            IDE-native preview and analysis for Serverless Workflow (.sw.json) files.
-            Renders a live PlantUML state diagram in a side tool window, contributes
-            PSI references for navigation and rename, ships eight inspections with
-            quick-fixes, semantic coloring, mutation badges, and dead-code dimming.
-            No browser, no Graphviz, no server.
+            IDE-native preview and analysis for Serverless Workflow (.sw.json): live
+            PlantUML diagram, navigation, inspections, and semantic highlighting.
         ]]></description>
         <change-notes><![CDATA[
-            <b>0.1.0</b> — Initial release.
+            <b>0.2.0</b>
             <ul>
-              <li>Live PlantUML diagram with bidirectional navigation.</li>
-              <li>Eight inspections + quick-fixes (missing / duplicate / unreachable / unused / terminal / switch / event-timeout).</li>
-              <li>PSI references: Go to Declaration, Find Usages, Rename.</li>
-              <li>Gutter usage popup, hover preview, semantic coloring.</li>
-              <li>Mutation badges, dead-code dimming, SVG / PUML export.</li>
+              <li>Fixed: the diagram no longer stretches when the tool window's proportions differ from the diagram's.</li>
+              <li>Changed: minimum supported IDE raised to 2025.2.</li>
+              <li>Changed: definition names are now colored by default, matching the diagram's per-type palette.</li>
+              <li>Updated bundled PlantUML, Batik and Gson.</li>
             </ul>
         ]]></change-notes>
     </plugin>

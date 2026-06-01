@@ -27,9 +27,9 @@
           <li>Toolbar: Fit to window, Export as SVG, Export as PUML.</li>
         </ul>
     ]]></description>
-    <change-notes><![CDATA[
-        <b>0.1.0</b> — Initial release.
-    ]]></change-notes>
+    <!-- change-notes is generated at build time from CHANGELOG.md by the
+         Gradle Changelog Plugin (see build.gradle.kts); no static copy here. -->
+
 
     <depends>com.intellij.modules.platform</depends>
     <depends>com.intellij.modules.json</depends>
@@ -68,6 +68,12 @@
         <annotator language="JSON"
                    implementationClass="tech.zacik.workflowviz.highlight.WorkflowAnnotator"/>
         <colorSettingsPage implementation="tech.zacik.workflowviz.highlight.WorkflowColorSettingsPage"/>
+        <!-- Explicit default colors (mirroring the diagram palette) so every
+             semantic key is visible out of the box instead of inheriting an
+             undistinguished fallback. Users can still rebind them under
+             Settings → Editor → Color Scheme → Workflow Visualizer. -->
+        <additionalTextAttributes scheme="Default" file="colorSchemes/WorkflowVizDefault.xml"/>
+        <additionalTextAttributes scheme="Darcula" file="colorSchemes/WorkflowVizDarcula.xml"/>
 
         <!-- Veto JsonSchemaCompliance for *.sw.json. Schemastore.org auto-binds
              the Serverless Workflow v1.0 schema (do/document top-level), which

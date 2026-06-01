@@ -20,20 +20,14 @@ and fetches the ZIP from the corresponding GitHub Release.
 
 ### 1. Bump source-side metadata
 
-In **`build.gradle.kts`**:
-- bump `version` (line near the top) to the new semver value, e.g. `0.2.0`.
-- refresh the `changeNotes` HTML inside the `patchPluginXml` block — short
-  summary shown in the IDE's plugin-update dialog.
-
-In **`updatePlugins.xml`**:
-- update the `<version>` attribute.
-- update the GitHub Release URL in `<plugin url=…>` to the new tag (only
-  the version number changes).
-- refresh `<change-notes>` to match build.gradle.kts.
-
-In **`CHANGELOG.md`** add a new section above the previous one:
+In **`CHANGELOG.md`** — the single source of truth for release notes; the
+plugin's `change-notes` (the IDE plugin-update dialog) are generated from it
+at build time. Rename the `## [Unreleased]` section to the new version and
+add a fresh empty one above it:
 ```
-## 0.2.0 — YYYY-MM-DD
+## [Unreleased]
+
+## [0.2.0] - YYYY-MM-DD
 
 ### Added
 - …
@@ -41,6 +35,18 @@ In **`CHANGELOG.md`** add a new section above the previous one:
 ### Fixed
 - …
 ```
+`./gradlew patchChangelog` performs that promotion for you. Keep the
+`## [x.y.z] - DATE` header format — the Gradle Changelog Plugin parses it.
+
+In **`build.gradle.kts`**:
+- bump `version` (line near the top) to the new semver value, e.g. `0.2.0`.
+  (No change-notes to touch — they are rendered from `CHANGELOG.md`.)
+
+In **`updatePlugins.xml`** (a standalone manifest, not produced by the build):
+- update the `version` attribute, and `since-build` if the IDE floor moved.
+- update the GitHub Release URL in `<plugin url=…>` to the new tag (only
+  the version number changes).
+- refresh `<change-notes>` to match the new `CHANGELOG.md` section.
 
 If user-facing things changed, refresh **`README.md`** too (screenshots,
 settings, etc.).
@@ -99,7 +105,7 @@ The project follows [Semantic Versioning](https://semver.org/):
   backwards compatible.
 - **PATCH** (0.0.X): bug fixes and internal refactors.
 
-The plugin's `since-build` is pinned to `233` (IntelliJ 2023.3) with no
+The plugin's `since-build` is pinned to `252` (IntelliJ 2025.2) with no
 `until-build` cap. Bumping `since-build` drops users on older IDEs and is
 treated as a major change.
 

@@ -4,6 +4,7 @@ import com.intellij.openapi.Disposable
 import com.intellij.openapi.actionSystem.ActionManager
 import com.intellij.openapi.actionSystem.DefaultActionGroup
 import com.intellij.openapi.application.ApplicationManager
+import com.intellij.openapi.application.EDT
 import com.intellij.openapi.editor.Editor
 import com.intellij.openapi.editor.ScrollType
 import com.intellij.openapi.editor.event.CaretEvent
@@ -19,7 +20,15 @@ import com.intellij.openapi.util.Disposer
 import com.intellij.openapi.wm.ToolWindow
 import com.intellij.openapi.wm.ToolWindowFactory
 import com.intellij.ui.content.ContentFactory
-import com.intellij.util.Alarm
+import kotlinx.coroutines.CoroutineName
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import javax.swing.JComponent
 import javax.swing.JLabel
 import javax.swing.JPanel
@@ -53,8 +62,13 @@ class WorkflowDiagramController(
     private val root = SimpleToolWindowPanel(true, true).also { it.setContent(content) }
     private val hint = JLabel("Open a .sw.json file", JLabel.CENTER)
     private val panel = DiagramPanel(::onStateClicked)
-    private val renderAlarm = Alarm(Alarm.ThreadToUse.POOLED_THREAD, this)
-    private val locateAlarm = Alarm(Alarm.ThreadToUse.POOLED_THREAD, this)
+    // Controller-scoped coroutines, cancelled in dispose(). No dispatcher in the
+    // context → launches default to Dispatchers.Default (background); UI work
+    // hops to Dispatchers.EDT explicitly. SupervisorJob so one failed render
+    // doesn't tear down the scope.
+    private val scope = CoroutineScope(SupervisorJob() + CoroutineName("wfviz-diagram"))
+    private var renderJob: Job? = null
+    private var locateJob: Job? = null
 
     private var editor: Editor? = null
     private var editorListeners: Disposable? = null
@@ -130,40 +144,44 @@ class WorkflowDiagramController(
         scheduleRender()
     }
 
+    /** EDT only — callers from coroutines must wrap in withContext(Dispatchers.EDT). */
     private fun showHint() {
-        ApplicationManager.getApplication().invokeLater {
-            content.removeAll(); content.add(hint, BorderLayout.CENTER); content.revalidate(); content.repaint()
-        }
+        content.removeAll(); content.add(hint, BorderLayout.CENTER); content.revalidate(); content.repaint()
     }
 
+    /** EDT only — callers from coroutines must wrap in withContext(Dispatchers.EDT). */
     private fun showPanel() {
         if (panel.parent !== content) {
-            ApplicationManager.getApplication().invokeLater {
-                content.removeAll(); content.add(panel, BorderLayout.CENTER); content.revalidate(); content.repaint()
-            }
+            content.removeAll(); content.add(panel, BorderLayout.CENTER); content.revalidate(); content.repaint()
         }
     }
 
     private fun scheduleRender() {
         val text = editor?.document?.text ?: return
-        renderAlarm.cancelAllRequests()
-        renderAlarm.addRequest({ render(text) }, 250)
+        renderJob?.cancel()
+        // delay() acts as the debounce: a newer edit cancels the pending job
+        // before it elapses. render() runs on the scope's default dispatcher.
+        renderJob = scope.launch {
+            delay(250)
+            render(text)
+        }
     }
 
     private fun scheduleLocate() {
         val ed = editor ?: return
         val text = ed.document.text
         val caret = ed.caretModel.offset
-        locateAlarm.cancelAllRequests()
-        locateAlarm.addRequest({
-            val names = WorkflowJson.parse(text)?.let { WorkflowJson.stateNames(it) } ?: return@addRequest
+        locateJob?.cancel()
+        locateJob = scope.launch {
+            delay(200)
+            val names = WorkflowJson.parse(text)?.let { WorkflowJson.stateNames(it) } ?: return@launch
             val state = JsonStateOffsets.enclosingState(text, caret, names)
             if (state != lastLocated) {
                 lastLocated = state
                 // In-place DOM patch — no PlantUML re-render. Fast on large diagrams.
                 panel.setLocate(state)
             }
-        }, 200)
+        }
     }
 
     /**
@@ -171,8 +189,11 @@ class WorkflowDiagramController(
      * The SVG is rendered without locate emphasis — the located state (if any)
      * is re-applied by the panel after the new GVT tree is built.
      */
-    private fun render(text: String) {
-        val workflow = WorkflowJson.parse(text) ?: run { showHint(); return }
+    private suspend fun render(text: String) {
+        val workflow = WorkflowJson.parse(text) ?: run {
+            withContext(Dispatchers.EDT) { showHint() }
+            return
+        }
         val service = WorkflowVizSettings.getInstance()
         val settings = service.state
         val config = SwJsonToPuml.Config(
@@ -190,7 +211,7 @@ class WorkflowDiagramController(
         }
         lastPuml = puml
         lastSvg = svg
-        ApplicationManager.getApplication().invokeLater {
+        withContext(Dispatchers.EDT) {
             showPanel()
             panel.setSvg(svg)
         }
@@ -202,12 +223,14 @@ class WorkflowDiagramController(
         val file = FileDocumentManager.getInstance().getFile(ed.document) ?: return
         val offset = JsonStateOffsets.offsetOfState(ed.document.text, stateName)
         if (offset < 0) return
-        ApplicationManager.getApplication().invokeLater {
+        scope.launch(Dispatchers.EDT) {
             FileEditorManager.getInstance(project).openFile(file, true)
             ed.caretModel.moveToOffset(offset)
             ed.scrollingModel.scrollToCaret(ScrollType.CENTER)
         }
     }
 
-    override fun dispose() {}
+    override fun dispose() {
+        scope.cancel()
+    }
 }

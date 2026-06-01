@@ -5,7 +5,22 @@ All notable changes to this project will be documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## 0.1.0 — 2026-05-29
+## [Unreleased]
+
+## [0.2.0] - 2026-06-01
+
+### Fixed
+- The diagram no longer stretches when the tool window's proportions differ
+  from the diagram's — it keeps its aspect ratio at any window size.
+
+### Changed
+- Minimum supported IDE raised to 2025.2 (no upper version bound).
+- Definition names are now colored by default, matching the diagram's
+  per-type palette (names in bold, references in italic). Every color stays
+  rebindable under Settings → Editor → Color Scheme.
+- Updated bundled PlantUML, Batik and Gson.
+
+## [0.1.0] - 2026-05-29
 
 Initial release.
 

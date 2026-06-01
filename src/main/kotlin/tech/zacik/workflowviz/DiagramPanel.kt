@@ -119,6 +119,14 @@ class DiagramPanel(private val onStateClicked: (String) -> Unit) : JPanel(Border
 
         val factory = SAXSVGDocumentFactory(XMLResourceDescriptor.getXMLParserClassName())
         val doc = factory.createSVGDocument(SCHEME + "diagram", StringReader(svg))
+        // PlantUML emits preserveAspectRatio="none" on the root <svg>, which makes
+        // Batik's fit-to-viewport scale X and Y independently → the diagram
+        // stretches whenever the canvas aspect ratio differs from the diagram's.
+        // Force uniform scaling + centering so the diagram keeps its ratio at any
+        // canvas size. Batik re-reads this attribute on every resize (componentResized
+        // → updateRenderingTransform → ViewBox.getViewTransform), so the fix holds
+        // across user resizes too, not just the initial fit.
+        doc.documentElement?.setAttribute("preserveAspectRatio", "xMidYMid meet")
         // Tracking state belongs to the old document; clear it before swap.
         locatedShape = null
         locatedOriginalFill = null
