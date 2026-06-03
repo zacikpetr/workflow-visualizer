@@ -40,6 +40,13 @@ shows the rendered diagram and updates on every edit. Click a state in the
 diagram → the editor caret jumps to its definition. Move the caret in the
 JSON → the matching state highlights in the diagram.
 
+**Navigating the diagram:** scroll to pan, ⌘/Ctrl+scroll or a trackpad pinch
+(macOS) to zoom, drag to move. The toolbar's **Zoom In** / **Zoom Out** and
+**Fit to Window** buttons do the same. A one-time hint points these out the first
+time a diagram opens. The buttons and gestures work on any keyboard layout; the
+`Ctrl+=` / `Ctrl+-` (and `Ctrl+NumpadPlus` / `Ctrl+NumpadMinus`) zoom shortcuts
+assume a US-style layout, so on other layouts prefer the buttons or gestures.
+
 ![Bidirectional navigation](images/03-bidirectional.png)
 
 ### Inspections + quick-fixes
@@ -113,8 +120,9 @@ inspection highlight.
 
 ### Toolbar
 
-Three actions in the tool window toolbar:
+Actions in the tool window toolbar:
 
+- **Zoom In** / **Zoom Out** — `Ctrl+=` / `Ctrl+-` (also ⌘/Ctrl+scroll or pinch)
 - **Fit to Window** — reset zoom/pan to auto-fit
 - **Export as SVG…** — save the rendered SVG
 - **Export as PUML…** — save the underlying PlantUML source

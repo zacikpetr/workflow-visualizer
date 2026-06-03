@@ -4,6 +4,7 @@ import com.intellij.icons.AllIcons
 import com.intellij.openapi.actionSystem.ActionUpdateThread
 import com.intellij.openapi.actionSystem.AnAction
 import com.intellij.openapi.actionSystem.AnActionEvent
+import com.intellij.openapi.actionSystem.CustomShortcutSet
 import com.intellij.openapi.fileChooser.FileChooserFactory
 import com.intellij.openapi.fileChooser.FileSaverDescriptor
 import com.intellij.openapi.project.Project
@@ -20,6 +21,34 @@ import javax.swing.Icon
  * `null` when no diagram is rendered yet; `update()` mirrors that into a
  * disabled toolbar button.
  */
+
+/**
+ * Zoom the diagram in/out one step around the canvas centre. The tooltip names
+ * the equivalent gestures (⌘/Ctrl+scroll, trackpad pinch) so the mouse/trackpad
+ * affordances — which never show up in the keymap — stay discoverable. The
+ * keyboard shortcut is registered on the tool window component by the caller.
+ */
+class ZoomInAction(private val panel: DiagramPanel) : AnAction(
+    "Zoom In",
+    "Zoom in (also ⌘/Ctrl+scroll, or pinch on a trackpad)",
+    AllIcons.General.ZoomIn,
+) {
+    // "+" is Shift+"=" on most layouts, so bind the bare "=" (no Shift needed),
+    // the shifted "+" for anyone who presses it, and the numpad "+".
+    init { shortcutSet = CustomShortcutSet.fromString("control EQUALS", "control shift EQUALS", "control ADD") }
+    override fun actionPerformed(e: AnActionEvent) = panel.zoomIn()
+    override fun getActionUpdateThread(): ActionUpdateThread = ActionUpdateThread.EDT
+}
+
+class ZoomOutAction(private val panel: DiagramPanel) : AnAction(
+    "Zoom Out",
+    "Zoom out (also ⌘/Ctrl+scroll, or pinch on a trackpad)",
+    AllIcons.General.ZoomOut,
+) {
+    init { shortcutSet = CustomShortcutSet.fromString("control MINUS", "control SUBTRACT") }
+    override fun actionPerformed(e: AnActionEvent) = panel.zoomOut()
+    override fun getActionUpdateThread(): ActionUpdateThread = ActionUpdateThread.EDT
+}
 
 /** Snap zoom/pan back to "fit the whole diagram" without changing the document. */
 class FitToWindowAction(private val panel: DiagramPanel) : AnAction(

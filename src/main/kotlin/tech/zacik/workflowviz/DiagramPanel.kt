@@ -7,6 +7,8 @@ import org.apache.batik.bridge.UpdateManagerEvent
 import org.apache.batik.swing.JSVGCanvas
 import org.apache.batik.swing.svg.JSVGComponent
 import org.apache.batik.swing.svg.SVGUserAgentAdapter
+import com.intellij.openapi.diagnostic.Logger
+import com.intellij.openapi.util.SystemInfo
 import org.apache.batik.util.XMLResourceDescriptor
 import org.w3c.dom.Element
 import tech.zacik.workflowviz.settings.WorkflowVizSettings
@@ -19,6 +21,8 @@ import java.awt.event.MouseWheelEvent
 import java.awt.geom.AffineTransform
 import java.awt.geom.Rectangle2D
 import java.io.StringReader
+import java.lang.reflect.Proxy
+import javax.swing.JComponent
 import javax.swing.JPanel
 import javax.swing.SwingUtilities
 
@@ -26,8 +30,10 @@ import javax.swing.SwingUtilities
  * Batik-based SVG viewer for the rendered PlantUML diagram.
  *
  * Batik's built-in interactors have unintuitive triggers, so we drive the
- * rendering transform ourselves: **mouse wheel = zoom at cursor**, **left-drag =
- * pan**. Batik re-renders the vector on zoom → crisp at any scale. Clicking a
+ * rendering transform ourselves: **scroll = pan**, **⌘/Ctrl + scroll = zoom at
+ * cursor**, **trackpad pinch = zoom** (macOS), **left-drag = pan**. Plain scroll
+ * panning means a trackpad two-finger swipe moves the diagram instead of zooming
+ * it. Batik re-renders the vector on zoom → crisp at any scale. Clicking a
  * state anchor (`<a href="swjson://X">`) fires [onStateClicked]; default link
  * navigation is suppressed via the user agent.
  */
@@ -55,6 +61,8 @@ class DiagramPanel(private val onStateClicked: (String) -> Unit) : JPanel(Border
     }
 
     private var dragStart: Point? = null
+    /** Last known cursor position over the canvas — pinch's fixed zoom point. */
+    private var lastMousePoint: Point? = null
 
     // ── locate (in-place SVG DOM patch — avoids re-rendering the whole diagram) ──
     /** Name of the currently located state, re-applied after each setSvg. */
@@ -66,12 +74,23 @@ class DiagramPanel(private val onStateClicked: (String) -> Unit) : JPanel(Border
     init {
         add(canvas, BorderLayout.CENTER)
         wireZoomAndPan()
+        installPinchToZoom()
     }
 
     private fun wireZoomAndPan() {
         canvas.addMouseWheelListener { e: MouseWheelEvent ->
-            val factor = if (e.wheelRotation < 0) 1.15 else 1.0 / 1.15
-            zoomAt(factor, e.x, e.y)
+            lastMousePoint = e.point
+            // ⌘/Ctrl + scroll → zoom at cursor (works the same for mouse and
+            // trackpad). Plain scroll → pan, so a trackpad two-finger swipe moves
+            // the diagram rather than zooming it. preciseWheelRotation keeps
+            // trackpad steps smooth instead of snapping to whole notches.
+            if (e.isMetaDown || e.isControlDown) {
+                zoomAt(Math.pow(ZOOM_STEP, -e.preciseWheelRotation), e.x, e.y)
+            } else {
+                val delta = e.preciseWheelRotation * PAN_STEP
+                // macOS/JBR reports horizontal trackpad scroll as a shifted wheel.
+                if (e.isShiftDown) panBy(-delta, 0.0) else panBy(0.0, -delta)
+            }
         }
         canvas.addMouseListener(object : MouseAdapter() {
             override fun mousePressed(e: MouseEvent) {
@@ -80,17 +99,72 @@ class DiagramPanel(private val onStateClicked: (String) -> Unit) : JPanel(Border
             override fun mouseReleased(e: MouseEvent) { dragStart = null }
         })
         canvas.addMouseMotionListener(object : MouseMotionAdapter() {
+            override fun mouseMoved(e: MouseEvent) { lastMousePoint = e.point }
             override fun mouseDragged(e: MouseEvent) {
+                lastMousePoint = e.point
                 val start = dragStart ?: return
-                val cur = canvas.renderingTransform ?: return
-                val pan = AffineTransform.getTranslateInstance(
-                    (e.x - start.x).toDouble(), (e.y - start.y).toDouble(),
-                )
-                pan.concatenate(cur)
-                canvas.setRenderingTransform(pan, true)
+                panBy((e.x - start.x).toDouble(), (e.y - start.y).toDouble())
                 dragStart = e.point
             }
         })
+    }
+
+    /**
+     * macOS trackpad pinch → zoom, via the JBR-bundled Apple gesture API
+     * (`com.apple.eawt.event`). Called through reflection + a dynamic [Proxy] so
+     * we need no `--add-exports` build flag and degrade to a no-op on non-mac or
+     * non-JBR runtimes — where ⌘/Ctrl + scroll still zooms. The magnification
+     * event carries no coordinates, so we anchor the zoom at the last cursor
+     * position over the canvas, matching the wheel-zoom fixed point.
+     */
+    private fun installPinchToZoom() {
+        if (!SystemInfo.isMac) return
+        try {
+            val gestureUtilities = Class.forName("com.apple.eawt.event.GestureUtilities")
+            val gestureListener = Class.forName("com.apple.eawt.event.GestureListener")
+            val magnificationListener = Class.forName("com.apple.eawt.event.MagnificationListener")
+            val getMagnification =
+                Class.forName("com.apple.eawt.event.MagnificationEvent").getMethod("getMagnification")
+
+            val listener = Proxy.newProxyInstance(
+                javaClass.classLoader, arrayOf(magnificationListener),
+            ) { proxy, method, args ->
+                when (method.name) {
+                    "magnify" -> {
+                        val magnification = getMagnification.invoke(args[0]) as Double
+                        // Fall back to the canvas centre if the cursor hasn't moved
+                        // over the canvas yet (first gesture) — otherwise it no-ops.
+                        val p = lastMousePoint ?: Point(canvas.width / 2, canvas.height / 2)
+                        // magnification is a per-event delta (e.g. 0.03); the step
+                        // scale factor is 1 + delta → spread = in, pinch = out.
+                        if (magnification != 0.0) zoomAt(1.0 + magnification, p.x, p.y)
+                        null
+                    }
+                    "hashCode" -> System.identityHashCode(proxy)
+                    "equals" -> proxy === args[0]
+                    "toString" -> "PinchToZoomListener"
+                    else -> null
+                }
+            }
+            // Signature is addGestureListenerTo(JComponent, GestureListener) — using
+            // Component here throws NoSuchMethodException, silently killing pinch.
+            gestureUtilities
+                .getMethod("addGestureListenerTo", JComponent::class.java, gestureListener)
+                .invoke(null, canvas, listener)
+        } catch (t: Throwable) {
+            // Gesture API absent (non-JBR runtime) — ⌘/Ctrl + scroll still zooms.
+            // Logged (not swallowed) so a wrong reflective signature is visible in
+            // idea.log instead of silently disabling pinch.
+            LOG.info("Pinch-to-zoom unavailable; falling back to ⌘/Ctrl+scroll", t)
+        }
+    }
+
+    /** Translate the view by ([dx], [dy]) screen pixels, preserving zoom. */
+    private fun panBy(dx: Double, dy: Double) {
+        val cur = canvas.renderingTransform ?: return
+        val pan = AffineTransform.getTranslateInstance(dx, dy)
+        pan.concatenate(cur)
+        canvas.setRenderingTransform(pan, true)
     }
 
     /** Zoom by [factor] keeping the point (x,y) under the cursor fixed. */
@@ -158,6 +232,12 @@ class DiagramPanel(private val onStateClicked: (String) -> Unit) : JPanel(Border
     fun fitToWindow() {
         canvas.setRenderingTransform(AffineTransform(), true)
     }
+
+    /** Zoom in one step, anchored at the canvas centre (toolbar button / keyboard). */
+    fun zoomIn() = zoomAt(ZOOM_BUTTON_STEP, canvas.width / 2, canvas.height / 2)
+
+    /** Zoom out one step, anchored at the canvas centre. */
+    fun zoomOut() = zoomAt(1.0 / ZOOM_BUTTON_STEP, canvas.width / 2, canvas.height / 2)
 
     /**
      * Highlight the state called [stateName] in the live SVG by patching its
@@ -277,6 +357,13 @@ class DiagramPanel(private val onStateClicked: (String) -> Unit) : JPanel(Border
     }
 
     companion object {
+        private val LOG = Logger.getInstance(DiagramPanel::class.java)
         const val SCHEME = "swjson://"
+        /** Zoom multiplier per wheel unit (⌘/Ctrl + scroll). */
+        private const val ZOOM_STEP = 1.15
+        /** Zoom multiplier per toolbar/keyboard step — coarser, fewer clicks. */
+        private const val ZOOM_BUTTON_STEP = 1.25
+        /** Screen pixels panned per wheel unit (plain scroll). */
+        private const val PAN_STEP = 32.0
     }
 }

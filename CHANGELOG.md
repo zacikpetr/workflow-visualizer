@@ -7,6 +7,18 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-06-03
+
+### Added
+- Trackpad pinch-to-zoom on the diagram (macOS).
+- Zoom In / Zoom Out toolbar buttons (`Ctrl+=` / `Ctrl+-`).
+- A one-time hint pointing out the diagram's navigation gestures.
+
+### Changed
+- Scrolling now pans the diagram (two-finger trackpad swipe or mouse wheel);
+  zoom moved to ⌘/Ctrl+scroll or a trackpad pinch. Previously the mouse wheel
+  zoomed.
+
 ## [0.2.0] - 2026-06-01
 
 ### Fixed

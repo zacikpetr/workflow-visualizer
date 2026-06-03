@@ -19,6 +19,7 @@ import com.intellij.openapi.ui.SimpleToolWindowPanel
 import com.intellij.openapi.util.Disposer
 import com.intellij.openapi.wm.ToolWindow
 import com.intellij.openapi.wm.ToolWindowFactory
+import com.intellij.ui.GotItTooltip
 import com.intellij.ui.content.ContentFactory
 import kotlinx.coroutines.CoroutineName
 import kotlinx.coroutines.CoroutineScope
@@ -86,7 +87,11 @@ class WorkflowDiagramController(
     }
 
     private fun buildToolbar(): JComponent {
+        val zoomIn = ZoomInAction(panel)
+        val zoomOut = ZoomOutAction(panel)
         val group = DefaultActionGroup().apply {
+            add(zoomIn)
+            add(zoomOut)
             add(FitToWindowAction(panel))
             addSeparator()
             add(ExportSvgAction { lastSvg })
@@ -100,7 +105,28 @@ class WorkflowDiagramController(
         // Without targetComponent, the toolbar can't resolve the data context
         // and Export's update() runs against a stale presentation.
         toolbar.targetComponent = root
+        // Bind the zoom shortcuts to the tool window component so they fire while
+        // it holds focus (a code-built action has no keymap entry of its own).
+        zoomIn.registerCustomShortcutSet(zoomIn.shortcutSet, root, this)
+        zoomOut.registerCustomShortcutSet(zoomOut.shortcutSet, root, this)
         return toolbar.component
+    }
+
+    /**
+     * One-time onboarding bubble teaching the navigation gestures — they're
+     * mouse/trackpad only, so they appear in no keymap or menu. [GotItTooltip]
+     * persists its "seen" state by id, so this shows once per user and then never
+     * again, even though [showPanel] may run repeatedly.
+     */
+    private fun showGesturesGotIt() {
+        GotItTooltip(
+            "workflowviz.diagram.gestures",
+            "Scroll to pan · ⌘/Ctrl+scroll or pinch to zoom · drag to move · " +
+                "click a state to jump to its definition",
+            this,
+        )
+            .withHeader("Navigating the diagram")
+            .show(root, GotItTooltip.TOP_MIDDLE)
     }
 
     fun start() {
@@ -153,6 +179,7 @@ class WorkflowDiagramController(
     private fun showPanel() {
         if (panel.parent !== content) {
             content.removeAll(); content.add(panel, BorderLayout.CENTER); content.revalidate(); content.repaint()
+            showGesturesGotIt()
         }
     }
 
