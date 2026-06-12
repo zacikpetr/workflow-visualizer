@@ -7,6 +7,8 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-06-12
+
 ### Changed
 - The plugin download shrank from ~35 MB to ~26 MB (dropped unused PlantUML
   extras), and the plugin's settings are now findable via the Settings

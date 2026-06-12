@@ -17,9 +17,11 @@ advertises a download URL before the asset exists.
 
 ### 1. Bump source-side metadata
 
-```bash
-./gradlew patchChangelog   # promotes ## [Unreleased] to the new version
-```
+In **`CHANGELOG.md`**: rename `## [Unreleased]` to `## [x.y.z] - YYYY-MM-DD`
+and add a fresh empty `## [Unreleased]` above it. **Do this by hand — do NOT
+run `./gradlew patchChangelog`:** it rewrites the whole file through its
+parser, which silently drops anything it doesn't model (it ate the `####`
+subsections of the 0.1.0 notes once).
 
 In **`build.gradle.kts`**: bump `version` to the same semver value.
 That's it — the plugin's `change-notes` and `updatePlugins.xml` are both
