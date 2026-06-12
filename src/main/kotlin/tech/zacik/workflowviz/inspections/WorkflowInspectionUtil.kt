@@ -58,6 +58,39 @@ internal object WorkflowDoc {
         (obj.findProperty(name)?.value as? JsonBooleanLiteral)?.value
 
     /**
+     * The literal carrying the workflow's start state name, handling both spec
+     * forms: `"start": "X"` and `"start": { "stateName": "X", … }`.
+     */
+    fun startLiteralOf(root: JsonObject): JsonStringLiteral? =
+        when (val v = root.findProperty("start")?.value) {
+            is JsonStringLiteral -> v
+            is JsonObject -> v.findProperty("stateName")?.value as? JsonStringLiteral
+            else -> null
+        }
+
+    /** The workflow's start state name (either spec form), or null. */
+    fun startNameOf(root: JsonObject): String? = startLiteralOf(root)?.value
+
+    /**
+     * True if [node] declares a workflow end — `end: true` or the object form
+     * (`"end": { "terminate": true, … }`). Works for states and for switch
+     * condition branches alike.
+     */
+    fun isEnd(node: JsonObject): Boolean =
+        boolProp(node, "end") == true || node.findProperty("end")?.value is JsonObject
+
+    /** All branch objects of a switch state: dataConditions[] + eventConditions[] + defaultCondition. */
+    fun conditionBranches(state: JsonObject): List<JsonObject> {
+        val out = mutableListOf<JsonObject>()
+        for (key in listOf("dataConditions", "eventConditions")) {
+            out += (state.findProperty(key)?.value as? JsonArray)?.valueList
+                ?.filterIsInstance<JsonObject>().orEmpty()
+        }
+        (state.findProperty("defaultCondition")?.value as? JsonObject)?.let { out += it }
+        return out
+    }
+
+    /**
      * Element to anchor a file-level diagnostic on (so highlighting is visible).
      * Prefer the `name` property identifier, else the first property of [root],
      * else the root itself.
@@ -89,6 +122,10 @@ internal object WorkflowDoc {
         }
 
         addTransition(state.findProperty("transition"))
+        // `compensatedBy` names the state invoked on compensation — an edge like
+        // any other for reachability/usage purposes (compensation handlers are
+        // not dead code even though no normal transition points at them).
+        addTransition(state.findProperty("compensatedBy"))
 
         for (ec in (state.findProperty("eventConditions")?.value as? JsonArray)?.valueList?.filterIsInstance<JsonObject>().orEmpty()) {
             addTransition(ec.findProperty("transition"))
@@ -106,9 +143,11 @@ internal object WorkflowDoc {
         return out
     }
 
-    /** True if [state] is terminal — `end: true` or no outbound transitions/conditionals. */
+    /** True if [state] is terminal — `end` (either form, incl. inside a switch branch) or no outbound transitions/conditionals. */
     fun isTerminal(state: JsonObject): Boolean {
-        if (boolProp(state, "end") == true) return true
+        if (isEnd(state)) return true
+        // Switch branches may terminate the workflow themselves (`end` instead of `transition`).
+        if (conditionBranches(state).any { isEnd(it) }) return true
         val hasTransition = state.findProperty("transition") != null
         val hasConditionals = state.findProperty("eventConditions") != null ||
             state.findProperty("dataConditions") != null ||

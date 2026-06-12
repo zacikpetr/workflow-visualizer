@@ -7,6 +7,31 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+### Changed
+- The plugin download shrank from ~35 MB to ~26 MB (dropped unused PlantUML
+  extras), and the plugin's settings are now findable via the Settings
+  search box.
+- Zoom shortcuts additionally bind to ⌘ on macOS (`⌘+=` / `⌘+-`).
+
+### Fixed
+- Object forms of `start` / `end`, branch-level `end` and `compensatedBy` are
+  fully supported — no more false unreachable / unused / terminal errors, and
+  the diagram draws their edges.
+- Rename refactoring on state / function / event / error names works.
+- False "Missing required properties 'do', 'document'" errors from the
+  auto-applied v1.0 schema are gone.
+- While typing through invalid JSON the diagram keeps the last good render
+  instead of flickering.
+- State names with spaces or special characters no longer merge diagram nodes
+  or break click-to-navigate.
+- The diagram highlights the caret's state correctly right after switching
+  between workflow files.
+- `start` keys nested deeper in the document (schedules, extensions) or in
+  unrelated JSON files are no longer flagged as missing states.
+- Lower background CPU use: no rendering while the tool window is hidden,
+  caret tracking no longer re-parses the file, zoom is clamped, and closing
+  the tool window releases its rendering resources.
+
 ## [0.3.0] - 2026-06-03
 
 ### Added

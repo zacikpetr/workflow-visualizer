@@ -10,6 +10,9 @@ import com.intellij.lang.annotation.Annotator
 import com.intellij.lang.annotation.HighlightSeverity
 import com.intellij.openapi.editor.colors.TextAttributesKey
 import com.intellij.psi.PsiElement
+import com.intellij.psi.util.CachedValueProvider
+import com.intellij.psi.util.CachedValuesManager
+import tech.zacik.workflowviz.inspections.WorkflowDoc
 import tech.zacik.workflowviz.refs.WorkflowDefinitionDoc
 import tech.zacik.workflowviz.refs.classifyReference
 import tech.zacik.workflowviz.settings.WorkflowVizSettings
@@ -84,9 +87,9 @@ class WorkflowAnnotator : Annotator {
     private fun stateNameKey(literal: JsonStringLiteral, stateObj: JsonObject): TextAttributesKey {
         // Start state takes priority over the type colour — it's the entrypoint.
         val root = workflowRootOf(literal)
-        val startName = (root?.findProperty("start")?.value as? JsonStringLiteral)?.value
+        val startName = root?.let { WorkflowDoc.startNameOf(it) }
         if (startName != null && startName == literal.value) return WorkflowColors.STATE_NAME_START
-        if (stateObj.findProperty("end")?.value?.text == "true") return WorkflowColors.STATE_NAME_END
+        if (WorkflowDoc.isEnd(stateObj)) return WorkflowColors.STATE_NAME_END
 
         val type = (stateObj.findProperty("type")?.value as? JsonStringLiteral)?.value
         return when (type) {
@@ -101,10 +104,21 @@ class WorkflowAnnotator : Annotator {
     private fun workflowRootOf(element: PsiElement): JsonObject? =
         (element.containingFile as? JsonFile)?.topLevelValue as? JsonObject
 
+    /**
+     * Cached per file (invalidated on PSI change): the annotator runs per
+     * string literal in *every* JSON file, and the top-level `states` lookup
+     * is a linear scan of root properties — O(literals × root size) per
+     * highlighting pass on large non-workflow files without the cache.
+     */
     private fun isWorkflowFile(element: PsiElement): Boolean {
         val file = element.containingFile ?: return false
         if (file.name.endsWith(".sw.json")) return true
-        val root = workflowRootOf(element) ?: return false
-        return root.findProperty("states")?.value is JsonArray
+        return CachedValuesManager.getCachedValue(file) {
+            val root = (file as? JsonFile)?.topLevelValue as? JsonObject
+            CachedValueProvider.Result.create(
+                root?.findProperty("states")?.value is JsonArray,
+                file,
+            )
+        }
     }
 }

@@ -1,0 +1,66 @@
+# Release pipeline, triggered by pushing a `v*` tag (see RELEASING.md).
+#
+# Order matters: the GitHub Release (with the zip asset) is created BEFORE
+# updatePlugins.xml is regenerated and pushed to main — IDEs polling the
+# manifest never see a download URL that 404s.
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Tag must match the Gradle version
+        run: |
+          V=$(sed -n 's/^version = "\(.*\)"/\1/p' build.gradle.kts | head -1)
+          if [ "v$V" != "$GITHUB_REF_NAME" ]; then
+            echo "::error::Tag $GITHUB_REF_NAME does not match build.gradle.kts version $V"
+            exit 1
+          fi
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      - name: Build, test & verify
+        run: ./gradlew build verifyPlugin -PciBuild
+
+      - name: Extract release notes from CHANGELOG.md
+        run: |
+          ./gradlew getChangelog --no-header --console=plain -q > release-notes.md
+          ZIP=$(ls build/distributions/workflow-visualizer-*.zip)
+          printf '\n---\nSHA-256: `%s`\n' "$(sha256sum "$ZIP" | cut -d' ' -f1)" >> release-notes.md
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" \
+            build/distributions/workflow-visualizer-*.zip \
+            --title "$GITHUB_REF_NAME" \
+            --notes-file release-notes.md
+
+      # Only now advertise the new version to installed IDEs.
+      - name: Regenerate updatePlugins.xml and push to main
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git checkout main
+          git pull --ff-only origin main
+          ./gradlew generateUpdatePluginsXml
+          git add updatePlugins.xml
+          git diff --staged --quiet || git commit -m "Advertise $GITHUB_REF_NAME in updatePlugins.xml"
+          git push origin main

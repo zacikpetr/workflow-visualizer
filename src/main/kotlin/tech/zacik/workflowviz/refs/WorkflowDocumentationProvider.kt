@@ -2,6 +2,8 @@ package tech.zacik.workflowviz.refs
 
 import com.intellij.json.psi.JsonStringLiteral
 import com.intellij.lang.documentation.AbstractDocumentationProvider
+import com.intellij.pom.PomTargetPsiElement
+import com.intellij.psi.DelegatePsiTarget
 import com.intellij.psi.PsiElement
 
 /**
@@ -11,13 +13,18 @@ import com.intellij.psi.PsiElement
  * the plain-hover annotation tooltip and this popup stay consistent.
  *
  * IntelliJ calls [generateDoc] with `element` = the resolved target — our
- * PSI reference resolves to the `name` literal of the definition, hence the
- * `forDefinition` entry point.
+ * PSI reference resolves to a [WorkflowDefinitionTarget] wrapped around the
+ * definition's `name` literal, so unwrap before rendering.
  */
 class WorkflowDocumentationProvider : AbstractDocumentationProvider() {
 
     override fun generateDoc(element: PsiElement, originalElement: PsiElement?): String? =
-        (element as? JsonStringLiteral)?.let(WorkflowDefinitionDoc::forDefinition)
+        definitionLiteral(element)?.let(WorkflowDefinitionDoc::forDefinition)
+
+    private fun definitionLiteral(element: PsiElement): JsonStringLiteral? =
+        element as? JsonStringLiteral
+            ?: ((element as? PomTargetPsiElement)?.target as? DelegatePsiTarget)
+                ?.navigationElement as? JsonStringLiteral
 
     override fun getQuickNavigateInfo(element: PsiElement, originalElement: PsiElement?): String? =
         generateDoc(element, originalElement)

@@ -49,14 +49,24 @@ fun classifyReference(literal: JsonStringLiteral): WorkflowReferenceKind? {
 }
 
 private fun propertyValueKind(prop: JsonProperty): WorkflowReferenceKind? = when (prop.name) {
-    "transition", "start" -> WorkflowReferenceKind.STATE
+    "transition", "compensatedBy" -> WorkflowReferenceKind.STATE
+    // `start` is a state reference only at the workflow root — nested `start`
+    // keys (schedule blocks, vendor extensions, foreign JSON files) are not
+    // state names and must not produce "Missing state definition" errors.
+    "start" -> if (isTopLevelProperty(prop)) WorkflowReferenceKind.STATE else null
     "nextState" -> if (insideProperty(prop, "transition")) WorkflowReferenceKind.STATE else null
+    // Object form of start: `"start": { "stateName": "X", … }`.
+    "stateName" -> if (insideProperty(prop, "start")) WorkflowReferenceKind.STATE else null
     "functionRef" -> WorkflowReferenceKind.FUNCTION
     "refName" -> if (insideProperty(prop, "functionRef")) WorkflowReferenceKind.FUNCTION else null
     "eventRef", "triggerEventRef" -> WorkflowReferenceKind.EVENT
     "errorRef" -> WorkflowReferenceKind.ERROR
     else -> null
 }
+
+/** True if [prop] sits directly in the file's top-level object. */
+private fun isTopLevelProperty(prop: JsonProperty): Boolean =
+    (prop.parent as? JsonObject)?.parent is JsonFile
 
 /** True if [prop]'s value object sits inside an outer property of [expectedName]. */
 private fun insideProperty(prop: JsonProperty, expectedName: String): Boolean {
@@ -120,8 +130,12 @@ class WorkflowReference(
         val workflow = workflowRoot(element) ?: return null
         val target = element.value
         val def = findDefinitionByName(workflow, kind.collection, target) ?: return null
-        // Navigate to the `"name"` value of the definition — that's where the caret lands.
-        return def.findProperty("name")?.value
+        // Navigate to the `"name"` value of the definition — that's where the
+        // caret lands. Resolved through a POM-target wrapper: a bare
+        // JsonStringLiteral is not a PsiNamedElement, so the platform would
+        // refuse Rename on it (see WorkflowDefinitionTarget).
+        val nameLiteral = def.findProperty("name")?.value as? JsonStringLiteral ?: return null
+        return WorkflowDefinitionTarget.psiFor(nameLiteral)
     }
 
     override fun getVariants(): Array<Any> {

@@ -29,7 +29,7 @@ class UnusedStatesInspection : LocalInspectionTool() {
         if (states.isEmpty()) return null
 
         val referenced = mutableSetOf<String>()
-        WorkflowDoc.stringProp(root, "start")?.let { referenced.add(it) }
+        WorkflowDoc.startNameOf(root)?.let { referenced.add(it) }
         for (state in states) {
             for (literal in WorkflowDoc.transitionTargets(state)) referenced.add(literal.value)
         }

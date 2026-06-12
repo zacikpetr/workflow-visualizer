@@ -44,8 +44,8 @@ JSON → the matching state highlights in the diagram.
 (macOS) to zoom, drag to move. The toolbar's **Zoom In** / **Zoom Out** and
 **Fit to Window** buttons do the same. A one-time hint points these out the first
 time a diagram opens. The buttons and gestures work on any keyboard layout; the
-`Ctrl+=` / `Ctrl+-` (and `Ctrl+NumpadPlus` / `Ctrl+NumpadMinus`) zoom shortcuts
-assume a US-style layout, so on other layouts prefer the buttons or gestures.
+`⌘/Ctrl+=` / `⌘/Ctrl+-` (and numpad `+` / `-`) zoom shortcuts assume a US-style
+layout, so on other layouts prefer the buttons or gestures.
 
 ![Bidirectional navigation](images/03-bidirectional.png)
 
@@ -56,11 +56,11 @@ Inspections → Serverless Workflow**:
 
 | Inspection | Default severity | What it catches |
 |---|---|---|
-| Missing definition | Error | `transition` / `functionRef` / `eventRef` / `errorRef` resolves to no `states[] / functions[] / events[] / errors[]` entry |
+| Missing definition | Error | `transition` / `compensatedBy` / `functionRef` / `eventRef` / `errorRef` resolves to no `states[] / functions[] / events[] / errors[]` entry |
 | Duplicate names | Error | Two entries in the same top-level array share a `name` |
 | Missing `start` | Error | Workflow has no `start` field |
 | No terminal state | Error | No state with `end: true` and every state has outgoing transitions |
-| Unreachable state | Error | State can't be reached by BFS from `start` (transitions + onErrors + dataConditions + eventConditions + defaultCondition) |
+| Unreachable state | Error | State can't be reached by BFS from `start` (transitions + onErrors + dataConditions + eventConditions + defaultCondition + compensatedBy) |
 | Unused state | Error | State is never referenced as `start` or any transition target |
 | Switch without `defaultCondition` | Warning | Switch with `dataConditions` and no `defaultCondition` → potential deadlock |
 | Event state without `timeouts` | Warning | Event-waiting state may wait indefinitely |
@@ -122,7 +122,7 @@ inspection highlight.
 
 Actions in the tool window toolbar:
 
-- **Zoom In** / **Zoom Out** — `Ctrl+=` / `Ctrl+-` (also ⌘/Ctrl+scroll or pinch)
+- **Zoom In** / **Zoom Out** — `⌘/Ctrl+=` / `⌘/Ctrl+-` (also ⌘/Ctrl+scroll or pinch)
 - **Fit to Window** — reset zoom/pan to auto-fit
 - **Export as SVG…** — save the rendered SVG
 - **Export as PUML…** — save the underlying PlantUML source
@@ -152,13 +152,15 @@ Changes apply on **Apply** without an IDE restart.
 ## Specification support
 
 Built for **Serverless Workflow v0.8** (`specVersion: "0.8"`). The plugin
-explicitly **disables JetBrains' JSON Schema validation for `.sw.json`**, which
-would otherwise match the v1.0 schema from schemastore.org and produce false
-"Missing required properties" errors against v0.8 documents.
+**blocks the schemastore.org catalog auto-binding for `.sw.json`**, which would
+otherwise match the v1.0 schema and produce false "Missing required properties"
+errors against v0.8 documents. Schemas you assign manually (Settings → Languages
+& Frameworks → Schemas and DTDs → JSON Schema Mappings) keep working.
 
 The inspections and references are structural and not strictly version-tied —
-v0.9 / v1.0 workflows render but the schema-driven completion / validation that
-the platform would otherwise provide is intentionally suppressed.
+v0.9 / v1.0 workflows render, but no schema-driven completion / validation is
+applied unless you map a schema yourself. Both the string and object forms of
+`start` / `end` are understood, as are `compensatedBy` references.
 
 ---
 

@@ -4,6 +4,7 @@ import org.apache.batik.anim.dom.SAXSVGDocumentFactory
 import org.apache.batik.bridge.UpdateManager
 import org.apache.batik.bridge.UpdateManagerAdapter
 import org.apache.batik.bridge.UpdateManagerEvent
+import org.apache.batik.bridge.UpdateManagerListener
 import org.apache.batik.swing.JSVGCanvas
 import org.apache.batik.swing.svg.JSVGComponent
 import org.apache.batik.swing.svg.SVGUserAgentAdapter
@@ -11,6 +12,7 @@ import com.intellij.openapi.diagnostic.Logger
 import com.intellij.openapi.util.SystemInfo
 import org.apache.batik.util.XMLResourceDescriptor
 import org.w3c.dom.Element
+import org.w3c.dom.svg.SVGDocument
 import tech.zacik.workflowviz.settings.WorkflowVizSettings
 import java.awt.BorderLayout
 import java.awt.Point
@@ -56,7 +58,7 @@ class DiagramPanel(private val onStateClicked: (String) -> Unit) : JPanel(Border
         setDocumentState(JSVGComponent.ALWAYS_DYNAMIC)
         addLinkActivationListener { e ->
             val uri = e.referencedURI ?: return@addLinkActivationListener
-            if (uri.startsWith(SCHEME)) onStateClicked(uri.removePrefix(SCHEME))
+            if (uri.startsWith(StateUri.SCHEME) && uri != DOC_URI) onStateClicked(StateUri.decode(uri))
         }
     }
 
@@ -65,11 +67,26 @@ class DiagramPanel(private val onStateClicked: (String) -> Unit) : JPanel(Border
     private var lastMousePoint: Point? = null
 
     // ── locate (in-place SVG DOM patch — avoids re-rendering the whole diagram) ──
+    // Volatile: written on the EDT (setSvg clears) and on Batik's update queue
+    // thread (applyLocate); restores are additionally guarded by a document
+    // identity check so a patch never lands on a swapped-out document.
     /** Name of the currently located state, re-applied after each setSvg. */
+    @Volatile
     private var currentLocate: String? = null
     /** The shape element we re-coloured, plus its original fill (or null if none). */
+    @Volatile
     private var locatedShape: Element? = null
+    @Volatile
     private var locatedOriginalFill: String? = null
+
+    /**
+     * Zoom-restore listener from the latest [setSvg]. Tracked so a newer swap
+     * removes a predecessor that never fired (document replaced before its
+     * UpdateManager started) — otherwise the stale listener fires on the *next*
+     * document and restores an outdated transform.
+     */
+    @Volatile
+    private var restoreListener: UpdateManagerListener? = null
 
     init {
         add(canvas, BorderLayout.CENTER)
@@ -167,19 +184,32 @@ class DiagramPanel(private val onStateClicked: (String) -> Unit) : JPanel(Border
         canvas.setRenderingTransform(pan, true)
     }
 
-    /** Zoom by [factor] keeping the point (x,y) under the cursor fixed. */
+    /**
+     * Zoom by [factor] keeping the point (x,y) under the cursor fixed. The
+     * resulting scale is clamped — Batik re-rasterizes the full vector at the
+     * new scale, so runaway zoom means huge tile renders (CPU) or an invisible
+     * diagram.
+     */
     private fun zoomAt(factor: Double, x: Int, y: Int) {
         val cur = canvas.renderingTransform ?: return
+        val clamped = when {
+            cur.scaleX * factor > MAX_SCALE -> MAX_SCALE / cur.scaleX
+            cur.scaleX * factor < MIN_SCALE -> MIN_SCALE / cur.scaleX
+            else -> factor
+        }
+        if (clamped == 1.0) return
         val at = AffineTransform()
         at.translate(x.toDouble(), y.toDouble())
-        at.scale(factor, factor)
+        at.scale(clamped, clamped)
         at.translate(-x.toDouble(), -y.toDouble())
         at.concatenate(cur)
         canvas.setRenderingTransform(at, true)
     }
 
     /**
-     * Replace the displayed diagram. Call on the EDT.
+     * Replace the displayed diagram with a document from [parseSvg]. Call on
+     * the EDT (parsing itself belongs on a background thread — it's an
+     * O(SVG-size) XML parse).
      *
      * Preserves the current zoom/pan across the swap **only when zoomed in
      * (scale ≥ 1.0)** — i.e. you're inspecting detail and don't want re-renders
@@ -187,20 +217,15 @@ class DiagramPanel(private val onStateClicked: (String) -> Unit) : JPanel(Border
      * 1.0, the typical "overview" state) we let Batik auto-fit the new SVG
      * so a freshly grown diagram stays fully visible. First load = always fit.
      */
-    fun setSvg(svg: String) {
+    fun setSvg(doc: SVGDocument) {
         val previousRT = canvas.renderingTransform
         val preserve = previousRT != null && previousRT.scaleX >= 1.0
 
-        val factory = SAXSVGDocumentFactory(XMLResourceDescriptor.getXMLParserClassName())
-        val doc = factory.createSVGDocument(SCHEME + "diagram", StringReader(svg))
-        // PlantUML emits preserveAspectRatio="none" on the root <svg>, which makes
-        // Batik's fit-to-viewport scale X and Y independently → the diagram
-        // stretches whenever the canvas aspect ratio differs from the diagram's.
-        // Force uniform scaling + centering so the diagram keeps its ratio at any
-        // canvas size. Batik re-reads this attribute on every resize (componentResized
-        // → updateRenderingTransform → ViewBox.getViewTransform), so the fix holds
-        // across user resizes too, not just the initial fit.
-        doc.documentElement?.setAttribute("preserveAspectRatio", "xMidYMid meet")
+        // A restore listener whose document got replaced before its manager
+        // started would otherwise fire on *this* document with an outdated
+        // transform.
+        restoreListener?.let { canvas.removeUpdateManagerListener(it) }
+        restoreListener = null
         // Tracking state belongs to the old document; clear it before swap.
         locatedShape = null
         locatedOriginalFill = null
@@ -210,14 +235,17 @@ class DiagramPanel(private val onStateClicked: (String) -> Unit) : JPanel(Border
             // the document fit), so restoring earlier gets overwritten one tick
             // later. managerStarted fires after that recompute — the right
             // hook. Fires on Batik's RunnableQueue thread → dispatch to EDT.
-            canvas.addUpdateManagerListener(object : UpdateManagerAdapter() {
+            val listener = object : UpdateManagerAdapter() {
                 override fun managerStarted(e: UpdateManagerEvent) {
                     canvas.removeUpdateManagerListener(this)
+                    if (restoreListener === this) restoreListener = null
                     SwingUtilities.invokeLater {
                         canvas.setRenderingTransform(previousRT, true)
                     }
                 }
-            })
+            }
+            restoreListener = listener
+            canvas.addUpdateManagerListener(listener)
         }
         canvas.setSVGDocument(doc)
         // Re-apply current locate via the update queue — runs once UpdateManager
@@ -271,16 +299,20 @@ class DiagramPanel(private val onStateClicked: (String) -> Unit) : JPanel(Border
 
     private fun applyLocate(stateName: String?) {
         val doc = canvas.svgDocument ?: return
-        // Restore previous shape's fill.
+        // Restore previous shape's fill — only when it still belongs to the
+        // live document; a shape from a swapped-out document must not be
+        // patched (and its live counterpart was reset by the swap anyway).
         locatedShape?.let { prev ->
-            if (locatedOriginalFill != null) prev.setAttribute("fill", locatedOriginalFill)
-            else prev.removeAttribute("fill")
+            if (prev.ownerDocument === doc) {
+                if (locatedOriginalFill != null) prev.setAttribute("fill", locatedOriginalFill)
+                else prev.removeAttribute("fill")
+            }
         }
         locatedShape = null
         locatedOriginalFill = null
         if (stateName == null) return
 
-        val anchor = findAnchor(doc.documentElement, SCHEME + stateName) ?: return
+        val anchor = findAnchor(doc.documentElement, StateUri.encode(stateName)) ?: return
         val shape = findFirstShape(anchor) ?: return
         locatedOriginalFill = if (shape.hasAttribute("fill")) shape.getAttribute("fill") else null
         shape.setAttribute("fill", WorkflowVizSettings.getInstance().state.locateColor)
@@ -356,14 +388,48 @@ class DiagramPanel(private val onStateClicked: (String) -> Unit) : JPanel(Border
         return null
     }
 
+    /**
+     * Stop Batik's update manager and release the GVT tree. Without this,
+     * closing the tool window leaks the canvas's RunnableQueue thread.
+     */
+    fun dispose() {
+        canvas.dispose()
+    }
+
     companion object {
         private val LOG = Logger.getInstance(DiagramPanel::class.java)
-        const val SCHEME = "swjson://"
+        /**
+         * Base document URI for the parsed SVG (not a state anchor). Contains
+         * `/`, which [StateUri.encode] never emits — no state name can collide.
+         */
+        private const val DOC_URI = StateUri.SCHEME + "internal/diagram"
+
+        /**
+         * Parse a rendered SVG string into the document [setSvg] consumes.
+         * Thread-safe and CPU-bound — call it on a background thread so the
+         * O(SVG-size) XML parse doesn't jank the EDT on every re-render.
+         */
+        fun parseSvg(svg: String): SVGDocument {
+            val factory = SAXSVGDocumentFactory(XMLResourceDescriptor.getXMLParserClassName())
+            val doc = factory.createSVGDocument(DOC_URI, StringReader(svg))
+            // PlantUML emits preserveAspectRatio="none" on the root <svg>, which
+            // makes Batik's fit-to-viewport scale X and Y independently → the
+            // diagram stretches whenever the canvas aspect ratio differs from the
+            // diagram's. Force uniform scaling + centering. Batik re-reads this
+            // attribute on every resize (componentResized → updateRenderingTransform
+            // → ViewBox.getViewTransform), so the fix holds across user resizes
+            // too, not just the initial fit.
+            doc.documentElement?.setAttribute("preserveAspectRatio", "xMidYMid meet")
+            return doc
+        }
         /** Zoom multiplier per wheel unit (⌘/Ctrl + scroll). */
         private const val ZOOM_STEP = 1.15
         /** Zoom multiplier per toolbar/keyboard step — coarser, fewer clicks. */
         private const val ZOOM_BUTTON_STEP = 1.25
         /** Screen pixels panned per wheel unit (plain scroll). */
         private const val PAN_STEP = 32.0
+        /** Rendering-transform scale bounds — Batik rasterizes at the target scale. */
+        private const val MIN_SCALE = 0.05
+        private const val MAX_SCALE = 40.0
     }
 }

@@ -28,31 +28,20 @@ class WorkflowLineMarkerProvider : RelatedItemLineMarkerProvider() {
         val literal = element.parent as? JsonStringLiteral ?: return
         // Only the first leaf of the literal contributes the marker (avoid duplicates).
         if (literal.firstChild !== element) return
-        val nameProp = literal.parent as? JsonProperty ?: return
-        if (nameProp.name != "name" || nameProp.value !== literal) return
 
-        val kind = enclosingDefinitionKind(nameProp) ?: return
+        val kind = definitionKindOf(literal) ?: return
         val name = literal.value
         val usages = findUsages(literal.containingFile, kind, name)
         if (usages.isEmpty()) return
 
-        val noun = if (usages.size == 1) kind.display else "${kind.display}s"
         val marker = NavigationGutterIconBuilder.create(AllIcons.Gutter.ImplementedMethod)
             .setTargets(usages)
-            .setTooltipText("${usages.size} usage${if (usages.size == 1) "" else "s"} of this $noun")
+            .setTooltipText("${usages.size} usage${if (usages.size == 1) "" else "s"} of this ${kind.display}")
             .setPopupTitle("Usages of \"$name\"")
             .setCellRenderer { WorkflowUsageRenderer() }
             .createLineMarkerInfo(element)
         result.add(marker)
     }
-}
-
-/** Walk up from a `"name"` property to find which top-level collection it lives in. */
-private fun enclosingDefinitionKind(nameProp: JsonProperty): WorkflowReferenceKind? {
-    val defObject = nameProp.parent as? JsonObject ?: return null
-    val array = defObject.parent as? JsonArray ?: return null
-    val collectionProperty = array.parent as? JsonProperty ?: return null
-    return WorkflowReferenceKind.values().firstOrNull { it.collection == collectionProperty.name }
 }
 
 /** All literals in [file] that classify as references of [kind] with value [name]. */

@@ -5,6 +5,7 @@ import com.intellij.openapi.actionSystem.ActionUpdateThread
 import com.intellij.openapi.actionSystem.AnAction
 import com.intellij.openapi.actionSystem.AnActionEvent
 import com.intellij.openapi.actionSystem.CustomShortcutSet
+import com.intellij.openapi.util.SystemInfo
 import com.intellij.openapi.fileChooser.FileChooserFactory
 import com.intellij.openapi.fileChooser.FileSaverDescriptor
 import com.intellij.openapi.project.Project
@@ -33,11 +34,16 @@ class ZoomInAction(private val panel: DiagramPanel) : AnAction(
     "Zoom in (also ⌘/Ctrl+scroll, or pinch on a trackpad)",
     AllIcons.General.ZoomIn,
 ) {
-    // "+" is Shift+"=" on most layouts, so bind the bare "=" (no Shift needed),
-    // the shifted "+" for anyone who presses it, and the numpad "+".
-    init { shortcutSet = CustomShortcutSet.fromString("control EQUALS", "control shift EQUALS", "control ADD") }
     override fun actionPerformed(e: AnActionEvent) = panel.zoomIn()
     override fun getActionUpdateThread(): ActionUpdateThread = ActionUpdateThread.EDT
+
+    companion object {
+        // "+" is Shift+"=" on most layouts, so bind the bare "=" (no Shift
+        // needed), the shifted "+" for anyone who presses it, and the numpad
+        // "+". Kept OUT of AnAction.setShortcutSet (internal API) — the caller
+        // registers these on the tool window component.
+        val SHORTCUTS: CustomShortcutSet = zoomShortcuts("EQUALS", "shift EQUALS", "ADD")
+    }
 }
 
 class ZoomOutAction(private val panel: DiagramPanel) : AnAction(
@@ -45,9 +51,20 @@ class ZoomOutAction(private val panel: DiagramPanel) : AnAction(
     "Zoom out (also ⌘/Ctrl+scroll, or pinch on a trackpad)",
     AllIcons.General.ZoomOut,
 ) {
-    init { shortcutSet = CustomShortcutSet.fromString("control MINUS", "control SUBTRACT") }
     override fun actionPerformed(e: AnActionEvent) = panel.zoomOut()
     override fun getActionUpdateThread(): ActionUpdateThread = ActionUpdateThread.EDT
+
+    companion object {
+        val SHORTCUTS: CustomShortcutSet = zoomShortcuts("MINUS", "SUBTRACT")
+    }
+}
+
+/** Each key with Ctrl everywhere, plus the native ⌘ variant on macOS. */
+private fun zoomShortcuts(vararg keys: String): CustomShortcutSet {
+    val modifiers = if (SystemInfo.isMac) listOf("meta", "control") else listOf("control")
+    return CustomShortcutSet.fromString(
+        *modifiers.flatMap { mod -> keys.map { "$mod $it" } }.toTypedArray(),
+    )
 }
 
 /** Snap zoom/pan back to "fit the whole diagram" without changing the document. */

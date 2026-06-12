@@ -31,7 +31,7 @@ class UnreachableStatesInspection : LocalInspectionTool() {
             .mapNotNull { state -> WorkflowDoc.nameOf(state)?.let { name -> name to state } }
             .toMap()
         if (states.isEmpty()) return null
-        val start = WorkflowDoc.stringProp(root, "start") ?: return null
+        val start = WorkflowDoc.startNameOf(root) ?: return null
         if (start !in states) return null
 
         val reachable = WorkflowReachability.reachable(file)

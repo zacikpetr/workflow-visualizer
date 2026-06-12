@@ -77,11 +77,17 @@
         <additionalTextAttributes scheme="Default" file="colorSchemes/WorkflowVizDefault.xml"/>
         <additionalTextAttributes scheme="Darcula" file="colorSchemes/WorkflowVizDarcula.xml"/>
 
-        <!-- Veto JsonSchemaCompliance for *.sw.json. Schemastore.org auto-binds
-             the Serverless Workflow v1.0 schema (do/document top-level), which
-             doesn't match our v0.8 documents → noisy false "Missing required
-             properties" on every file. See WorkflowSchemaSuppressor for context. -->
-        <json.jsonSchemaEnabler implementation="tech.zacik.workflowviz.inspections.WorkflowSchemaSuppressor"/>
+        <!-- Block schemastore.org catalog auto-binding for *.sw.json. The
+             catalog matches the Serverless Workflow v1.0 schema (do/document
+             top-level), which doesn't match our v0.8 documents → noisy false
+             "Missing required properties" on every file. User-assigned schema
+             mappings keep working. See WorkflowSchemaCatalogExclusion. -->
+        <json.catalog.exclusion implementation="tech.zacik.workflowviz.inspections.WorkflowSchemaCatalogExclusion"/>
+
+        <!-- Maps the caret on a definition's name to the same POM target the
+             references resolve to — makes Rename / Find Usages work when
+             started from the definition side. -->
+        <pom.declarationSearcher implementation="tech.zacik.workflowviz.refs.WorkflowPomDeclarationSearcher"/>
 
         <!-- Inspections ported from the standalone Python workflow validator.
              Each is independently toggleable under Settings → Editor → Inspections

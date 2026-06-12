@@ -5,6 +5,9 @@ import com.intellij.openapi.actionSystem.ActionManager
 import com.intellij.openapi.actionSystem.DefaultActionGroup
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.application.EDT
+import com.intellij.openapi.application.readAction
+import com.intellij.openapi.diagnostic.Logger
+import com.intellij.openapi.editor.Document
 import com.intellij.openapi.editor.Editor
 import com.intellij.openapi.editor.ScrollType
 import com.intellij.openapi.editor.event.CaretEvent
@@ -19,11 +22,13 @@ import com.intellij.openapi.ui.SimpleToolWindowPanel
 import com.intellij.openapi.util.Disposer
 import com.intellij.openapi.wm.ToolWindow
 import com.intellij.openapi.wm.ToolWindowFactory
+import com.intellij.openapi.wm.ex.ToolWindowManagerListener
 import com.intellij.ui.GotItTooltip
 import com.intellij.ui.content.ContentFactory
 import kotlinx.coroutines.CoroutineName
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
@@ -39,7 +44,7 @@ import tech.zacik.workflowviz.settings.WorkflowVizSettingsListener
 
 class WorkflowDiagramToolWindowFactory : ToolWindowFactory {
     override fun createToolWindowContent(project: Project, toolWindow: ToolWindow) {
-        val controller = WorkflowDiagramController(project, toolWindow.disposable)
+        val controller = WorkflowDiagramController(project, toolWindow)
         val content = ContentFactory.getInstance().createContent(controller.component, "", false)
         toolWindow.contentManager.addContent(content)
         controller.start()
@@ -54,7 +59,7 @@ class WorkflowDiagramToolWindowFactory : ToolWindowFactory {
  */
 class WorkflowDiagramController(
     private val project: Project,
-    parentDisposable: Disposable,
+    private val toolWindow: ToolWindow,
 ) : Disposable {
 
     private val content = JPanel(BorderLayout())
@@ -68,20 +73,47 @@ class WorkflowDiagramController(
     // hops to Dispatchers.EDT explicitly. SupervisorJob so one failed render
     // doesn't tear down the scope.
     private val scope = CoroutineScope(SupervisorJob() + CoroutineName("wfviz-diagram"))
+    // Single-lane dispatcher for PlantUML: a cancel() can't interrupt a render
+    // already inside the CPU-bound engine, so without the lane a burst of edits
+    // stacks concurrent multi-second renders on the shared Default pool.
+    @OptIn(ExperimentalCoroutinesApi::class)
+    private val renderLane = Dispatchers.Default.limitedParallelism(1)
+    // Locate runs on its own single lane: its jobs are serialized against each
+    // other (the offset cache below has no other synchronization) without ever
+    // queueing behind a multi-second PlantUML render.
+    @OptIn(ExperimentalCoroutinesApi::class)
+    private val locateLane = Dispatchers.Default.limitedParallelism(1)
     private var renderJob: Job? = null
     private var locateJob: Job? = null
+    /** Set when an edit arrives while the tool window is hidden — rendered on re-show. */
+    private var pendingRender = false
+    /**
+     * `"name"` declaration offsets cached per (document, version) — the locate
+     * hot path. Keying by stamp alone is not enough: two different documents
+     * can share a modification stamp, and a stale hit would highlight against
+     * the previous file's offsets until the next edit.
+     */
+    private var nameOffsetsDoc: Document? = null
+    private var nameOffsetsStamp = -1L
+    private var nameOffsets: List<Pair<Int, String>> = emptyList()
 
+    // Written on the EDT, read from background coroutines.
+    @Volatile
     private var editor: Editor? = null
     private var editorListeners: Disposable? = null
+    // Written on the EDT (reset on editor switch) and on the locate lane.
+    @Volatile
     private var lastLocated: String? = null
     /** Last successfully rendered SVG / PUML — fed to the Export actions. */
+    @Volatile
     private var lastSvg: String? = null
+    @Volatile
     private var lastPuml: String? = null
 
     val component: JComponent get() = root
 
     init {
-        Disposer.register(parentDisposable, this)
+        Disposer.register(toolWindow.disposable, this)
         content.add(hint, BorderLayout.CENTER)
         root.setToolbar(buildToolbar())
     }
@@ -107,8 +139,8 @@ class WorkflowDiagramController(
         toolbar.targetComponent = root
         // Bind the zoom shortcuts to the tool window component so they fire while
         // it holds focus (a code-built action has no keymap entry of its own).
-        zoomIn.registerCustomShortcutSet(zoomIn.shortcutSet, root, this)
-        zoomOut.registerCustomShortcutSet(zoomOut.shortcutSet, root, this)
+        zoomIn.registerCustomShortcutSet(ZoomInAction.SHORTCUTS, root, this)
+        zoomOut.registerCustomShortcutSet(ZoomOutAction.SHORTCUTS, root, this)
         return toolbar.component
     }
 
@@ -137,6 +169,19 @@ class WorkflowDiagramController(
                     attachToSelectedEditor()
             },
         )
+        // Edits made while the tool window is hidden don't render (see
+        // scheduleRender); catch up once it becomes visible again.
+        project.messageBus.connect(this).subscribe(
+            ToolWindowManagerListener.TOPIC,
+            object : ToolWindowManagerListener {
+                override fun toolWindowShown(shown: ToolWindow) {
+                    if (shown.id == toolWindow.id && pendingRender) {
+                        pendingRender = false
+                        scheduleRender()
+                    }
+                }
+            },
+        )
         // Live-update on Settings Apply — badges / colors / label length toggles
         // re-render without waiting for the next document edit.
         ApplicationManager.getApplication().messageBus.connect(this).subscribe(
@@ -149,10 +194,32 @@ class WorkflowDiagramController(
     private fun attachToSelectedEditor() {
         editorListeners?.let { Disposer.dispose(it) }
         editorListeners = null
-        editor = FileEditorManager.getInstance(project).selectedTextEditor
+        // In-flight jobs belong to the previous editor — a late render commit
+        // would repaint the old file's diagram over the hint, and a late
+        // locate would re-set the highlight cleared below.
+        renderJob?.cancel()
+        locateJob?.cancel()
+        val selected = FileEditorManager.getInstance(project).selectedTextEditor
+        val file = selected?.let { FileDocumentManager.getInstance().getFile(it.document) }
+        // Only JSON files can be workflows — installing listeners on every
+        // editor would copy + Gson-parse the whole document after each
+        // keystroke in any file type.
+        editor = if (file != null && file.name.endsWith(".json")) selected else null
+
+        // Locate state belongs to the previous editor: without the reset, a
+        // same-named state in the new file is skipped as "already highlighted"
+        // and the diagram never lights up until something else changes. The
+        // offset cache goes too — it also pins the previous document's text.
+        lastLocated = null
+        panel.setLocate(null)
+        nameOffsetsDoc = null
+        nameOffsetsStamp = -1
+        nameOffsets = emptyList()
 
         val ed = editor
         if (ed == null) {
+            lastSvg = null
+            lastPuml = null
             showHint()
             return
         }
@@ -184,25 +251,48 @@ class WorkflowDiagramController(
     }
 
     private fun scheduleRender() {
-        val text = editor?.document?.text ?: return
+        val ed = editor ?: return
+        // Hidden tool window → every edit would still cost a full parse + PUML
+        // generation + PlantUML render nobody sees. Defer to the next show.
+        if (!toolWindow.isVisible) {
+            pendingRender = true
+            return
+        }
         renderJob?.cancel()
         // delay() acts as the debounce: a newer edit cancels the pending job
-        // before it elapses. render() runs on the scope's default dispatcher.
-        renderJob = scope.launch {
+        // before it elapses. The document text is captured *after* the debounce
+        // window inside a read action — copying it eagerly here would cost an
+        // O(document) string copy per keystroke.
+        renderJob = scope.launch(renderLane) {
             delay(250)
+            val text = readAction { if (ed.isDisposed) null else ed.document.text } ?: return@launch
             render(text)
         }
     }
 
     private fun scheduleLocate() {
         val ed = editor ?: return
-        val text = ed.document.text
-        val caret = ed.caretModel.offset
+        val caret = ed.caretModel.offset // caret listener runs on the EDT
         locateJob?.cancel()
-        locateJob = scope.launch {
+        locateJob = scope.launch(locateLane) {
             delay(200)
-            val names = WorkflowJson.parse(text)?.let { WorkflowJson.stateNames(it) } ?: return@launch
-            val state = JsonStateOffsets.enclosingState(text, caret, names)
+            // The Gson parse + offset scan run only when the document actually
+            // changed; plain caret movement reuses the cached offsets — that
+            // path used to re-parse and re-scan the whole file per arrow key.
+            val snapshot = readAction {
+                if (ed.isDisposed) return@readAction null
+                val stamp = ed.document.modificationStamp
+                val fresh = ed.document === nameOffsetsDoc && stamp == nameOffsetsStamp
+                stamp to if (fresh) null else ed.document.text
+            } ?: return@launch
+            val (stamp, text) = snapshot
+            if (text != null) {
+                val names = WorkflowJson.parse(text)?.let { WorkflowJson.stateNames(it) } ?: return@launch
+                nameOffsets = JsonStateOffsets.nameOffsets(text, names)
+                nameOffsetsStamp = stamp
+                nameOffsetsDoc = ed.document
+            }
+            val state = JsonStateOffsets.enclosingState(nameOffsets, caret)
             if (state != lastLocated) {
                 lastLocated = state
                 // In-place DOM patch — no PlantUML re-render. Fast on large diagrams.
@@ -217,8 +307,12 @@ class WorkflowDiagramController(
      * is re-applied by the panel after the new GVT tree is built.
      */
     private suspend fun render(text: String) {
-        val workflow = WorkflowJson.parse(text) ?: run {
-            withContext(Dispatchers.EDT) { showHint() }
+        val workflow = WorkflowJson.parse(text)
+        if (workflow == null) {
+            // Transiently invalid JSON while typing — keep the last good
+            // diagram visible; only fall back to the hint when nothing has
+            // been rendered for this editor yet.
+            if (lastSvg == null) withContext(Dispatchers.EDT) { showHint() }
             return
         }
         val service = WorkflowVizSettings.getInstance()
@@ -231,26 +325,43 @@ class WorkflowDiagramController(
             dimUnreachable = settings.dimUnreachable,
         )
         val puml = SwJsonToPuml.toPuml(workflow, config = config)
+        if (puml == lastPuml) return // no-op edit (whitespace, comments) — skip the engine
         val svg = try {
             PlantUmlRenderer.toSvg(puml)
         } catch (e: Exception) {
-            return // keep last good render
+            LOG.warn("PlantUML render failed — keeping last good diagram", e)
+            return
         }
-        lastPuml = puml
-        lastSvg = svg
+        // Parse here, off the EDT — the XML parse is O(SVG size) and used to
+        // jank the UI thread on every re-render of a large diagram.
+        val doc = try {
+            DiagramPanel.parseSvg(svg)
+        } catch (e: Exception) {
+            LOG.warn("SVG parse failed — keeping last good diagram", e)
+            return
+        }
         withContext(Dispatchers.EDT) {
+            // Committed on the EDT: a stale render cancelled meanwhile never
+            // gets here, so the Export actions always match what's on screen.
+            lastPuml = puml
+            lastSvg = svg
             showPanel()
-            panel.setSvg(svg)
+            panel.setSvg(doc)
         }
     }
 
-    /** Diagram → editor: move the caret to the clicked state's definition. */
+    /**
+     * Diagram → editor: move the caret to the clicked state's definition.
+     * Batik fires link events on its own update thread — everything here,
+     * including the document read, hops to the EDT first.
+     */
     private fun onStateClicked(stateName: String) {
-        val ed = editor ?: return
-        val file = FileDocumentManager.getInstance().getFile(ed.document) ?: return
-        val offset = JsonStateOffsets.offsetOfState(ed.document.text, stateName)
-        if (offset < 0) return
         scope.launch(Dispatchers.EDT) {
+            val ed = editor ?: return@launch
+            if (ed.isDisposed) return@launch
+            val file = FileDocumentManager.getInstance().getFile(ed.document) ?: return@launch
+            val offset = JsonStateOffsets.offsetOfState(ed.document.text, stateName)
+            if (offset < 0) return@launch
             FileEditorManager.getInstance(project).openFile(file, true)
             ed.caretModel.moveToOffset(offset)
             ed.scrollingModel.scrollToCaret(ScrollType.CENTER)
@@ -259,5 +370,10 @@ class WorkflowDiagramController(
 
     override fun dispose() {
         scope.cancel()
+        panel.dispose()
+    }
+
+    companion object {
+        private val LOG = Logger.getInstance(WorkflowDiagramController::class.java)
     }
 }
