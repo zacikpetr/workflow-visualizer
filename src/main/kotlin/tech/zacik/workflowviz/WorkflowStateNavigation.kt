@@ -33,13 +33,14 @@ object WorkflowStateNavigation {
     }
 
     /**
-     * Caret offset just inside the opening quote of the state's `"name"`, or null
-     * if no such state. Via the cached index, so it never lands on a like-named
-     * function/action earlier in the file.
+     * Caret offset at the start of the state's `"name"` literal (its opening
+     * quote) — the same spot Go to Declaration lands on, so a diagram click and
+     * Ctrl+B match. Null if no such state. Via the cached index, so it never
+     * lands on a like-named function/action earlier in the file.
      */
     fun stateNameOffset(file: JsonFile, name: String): Int? {
         val def = WorkflowIndex.findDefinition(file, WorkflowReferenceKind.STATE, name) ?: return null
         val nameLiteral = WorkflowDoc.nameLiteralOf(def) ?: return null
-        return nameLiteral.textRange.startOffset + 1
+        return nameLiteral.textRange.startOffset
     }
 }

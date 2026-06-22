@@ -7,6 +7,12 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.5.1] - 2026-06-22
+
+### Fixed
+- Clicking a state in the diagram now lands the caret in the same place as
+  Go to Declaration (Ctrl/Cmd+B), instead of one character off.
+
 ## [0.5.0] - 2026-06-22
 
 ### Changed
