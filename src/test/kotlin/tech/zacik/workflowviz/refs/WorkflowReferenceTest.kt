@@ -53,6 +53,32 @@ class WorkflowReferenceTest : BasePlatformTestCase() {
         )
     }
 
+    fun testFindUsagesCollectsAllReferencesToAState() {
+        myFixture.configureByText(
+            "test.sw.json",
+            """{"start":"First","states":[
+                {"name":"First","type":"operation","transition":"Second"},
+                {"name":"Second","type":"operation","transition":"Third"},
+                {"name":"Third","type":"operation","transition":"Second"}]}""",
+        )
+        // Second is referenced by First.transition and Third.transition.
+        val usages = WorkflowIndex.findUsages(myFixture.file, WorkflowReferenceKind.STATE, "Second")
+        assertEquals(2, usages.size)
+    }
+
+    fun testFindUsagesFindsStringFormFunctionRefs() {
+        myFixture.configureByText(
+            "test.sw.json",
+            """{"functions":[{"name":"f","type":"expression","operation":".x"}],
+                "states":[
+                  {"name":"A","actions":[{"functionRef":"f"}],"transition":"B"},
+                  {"name":"B","actions":[{"functionRef":"f"}],"end":true}]}""",
+        )
+        // String-form `"functionRef": "f"` — the shape used across the UVS workflows.
+        val usages = WorkflowIndex.findUsages(myFixture.file, WorkflowReferenceKind.FUNCTION, "f")
+        assertEquals(2, usages.size)
+    }
+
     fun testStartValueInForeignJsonIsNotAWorkflowReference() {
         myFixture.configureByText(
             "package.json",

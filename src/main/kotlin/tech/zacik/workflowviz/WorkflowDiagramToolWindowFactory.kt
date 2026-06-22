@@ -1,5 +1,6 @@
 package tech.zacik.workflowviz
 
+import com.intellij.json.psi.JsonFile
 import com.intellij.openapi.Disposable
 import com.intellij.openapi.actionSystem.ActionManager
 import com.intellij.openapi.actionSystem.DefaultActionGroup
@@ -7,7 +8,6 @@ import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.application.EDT
 import com.intellij.openapi.application.readAction
 import com.intellij.openapi.diagnostic.Logger
-import com.intellij.openapi.editor.Document
 import com.intellij.openapi.editor.Editor
 import com.intellij.openapi.editor.ScrollType
 import com.intellij.openapi.editor.event.CaretEvent
@@ -23,6 +23,7 @@ import com.intellij.openapi.util.Disposer
 import com.intellij.openapi.wm.ToolWindow
 import com.intellij.openapi.wm.ToolWindowFactory
 import com.intellij.openapi.wm.ex.ToolWindowManagerListener
+import com.intellij.psi.PsiDocumentManager
 import com.intellij.ui.GotItTooltip
 import com.intellij.ui.content.ContentFactory
 import kotlinx.coroutines.CoroutineName
@@ -78,24 +79,15 @@ class WorkflowDiagramController(
     // stacks concurrent multi-second renders on the shared Default pool.
     @OptIn(ExperimentalCoroutinesApi::class)
     private val renderLane = Dispatchers.Default.limitedParallelism(1)
-    // Locate runs on its own single lane: its jobs are serialized against each
-    // other (the offset cache below has no other synchronization) without ever
-    // queueing behind a multi-second PlantUML render.
+    // Locate runs on its own single lane so its jobs serialize against each other
+    // (lastLocated has no other synchronization) without ever queueing behind a
+    // multi-second PlantUML render.
     @OptIn(ExperimentalCoroutinesApi::class)
     private val locateLane = Dispatchers.Default.limitedParallelism(1)
     private var renderJob: Job? = null
     private var locateJob: Job? = null
     /** Set when an edit arrives while the tool window is hidden — rendered on re-show. */
     private var pendingRender = false
-    /**
-     * `"name"` declaration offsets cached per (document, version) — the locate
-     * hot path. Keying by stamp alone is not enough: two different documents
-     * can share a modification stamp, and a stale hit would highlight against
-     * the previous file's offsets until the next edit.
-     */
-    private var nameOffsetsDoc: Document? = null
-    private var nameOffsetsStamp = -1L
-    private var nameOffsets: List<Pair<Int, String>> = emptyList()
 
     // Written on the EDT, read from background coroutines.
     @Volatile
@@ -208,13 +200,9 @@ class WorkflowDiagramController(
 
         // Locate state belongs to the previous editor: without the reset, a
         // same-named state in the new file is skipped as "already highlighted"
-        // and the diagram never lights up until something else changes. The
-        // offset cache goes too — it also pins the previous document's text.
+        // and the diagram never lights up until something else changes.
         lastLocated = null
         panel.setLocate(null)
-        nameOffsetsDoc = null
-        nameOffsetsStamp = -1
-        nameOffsets = emptyList()
 
         val ed = editor
         if (ed == null) {
@@ -276,23 +264,14 @@ class WorkflowDiagramController(
         locateJob?.cancel()
         locateJob = scope.launch(locateLane) {
             delay(200)
-            // The Gson parse + offset scan run only when the document actually
-            // changed; plain caret movement reuses the cached offsets — that
-            // path used to re-parse and re-scan the whole file per arrow key.
-            val snapshot = readAction {
+            // Enclosing state from the JSON PSI — whole-object granularity; a caret
+            // outside any flow node resolves to null and clears the highlight.
+            val state = readAction {
                 if (ed.isDisposed) return@readAction null
-                val stamp = ed.document.modificationStamp
-                val fresh = ed.document === nameOffsetsDoc && stamp == nameOffsetsStamp
-                stamp to if (fresh) null else ed.document.text
-            } ?: return@launch
-            val (stamp, text) = snapshot
-            if (text != null) {
-                val names = WorkflowJson.parse(text)?.let { WorkflowJson.stateNames(it) } ?: return@launch
-                nameOffsets = JsonStateOffsets.nameOffsets(text, names)
-                nameOffsetsStamp = stamp
-                nameOffsetsDoc = ed.document
+                val psi = PsiDocumentManager.getInstance(project).getPsiFile(ed.document) as? JsonFile
+                    ?: return@readAction null
+                WorkflowStateNavigation.enclosingStateName(psi, caret)
             }
-            val state = JsonStateOffsets.enclosingState(nameOffsets, caret)
             if (state != lastLocated) {
                 lastLocated = state
                 // In-place DOM patch — no PlantUML re-render. Fast on large diagrams.
@@ -351,17 +330,23 @@ class WorkflowDiagramController(
     }
 
     /**
-     * Diagram → editor: move the caret to the clicked state's definition.
-     * Batik fires link events on its own update thread — everything here,
-     * including the document read, hops to the EDT first.
+     * Diagram → editor: move the caret to the clicked state's definition. Batik
+     * fires link events on its own update thread, so we re-dispatch to the EDT;
+     * the offset is resolved under a read action and the caret move runs on the EDT.
      */
     private fun onStateClicked(stateName: String) {
         scope.launch(Dispatchers.EDT) {
             val ed = editor ?: return@launch
             if (ed.isDisposed) return@launch
             val file = FileDocumentManager.getInstance().getFile(ed.document) ?: return@launch
-            val offset = JsonStateOffsets.offsetOfState(ed.document.text, stateName)
-            if (offset < 0) return@launch
+            // Same PSI index as Ctrl+B → the state definition, not a like-named
+            // function/action earlier in the file.
+            val offset = readAction {
+                if (ed.isDisposed) return@readAction null
+                val psi = PsiDocumentManager.getInstance(project).getPsiFile(ed.document) as? JsonFile
+                    ?: return@readAction null
+                WorkflowStateNavigation.stateNameOffset(psi, stateName)
+            } ?: return@launch
             FileEditorManager.getInstance(project).openFile(file, true)
             ed.caretModel.moveToOffset(offset)
             ed.scrollingModel.scrollToCaret(ScrollType.CENTER)

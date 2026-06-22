@@ -34,9 +34,12 @@ settings, etc.).
 
 ```bash
 git add -u && git commit -m "Release 0.4.0: <one-line summary>"
-git tag v0.4.0
+git tag -a v0.4.0 -m "v0.4.0"
 git push --follow-tags
 ```
+
+(`--follow-tags` only pushes **annotated** tags — hence `tag -a`. A plain
+lightweight tag must be pushed explicitly: `git push origin v0.4.0`.)
 
 The tag must match the Gradle `version` (`v` prefix) — the release workflow
 fails fast otherwise.

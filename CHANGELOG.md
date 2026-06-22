@@ -7,6 +7,16 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-06-22
+
+### Changed
+- The caret-to-diagram preview is now genuinely interactive: put the caret
+  anywhere inside a state and the diagram highlights it live. The highlight used
+  to be unreliable — often stuck on a neighbouring state, especially for states
+  whose name also names a function — so you'd see the wrong node lit up.
+- Clicking a state in the diagram reliably jumps to that state, even when a
+  function with the same name appears earlier in the file.
+
 ## [0.4.0] - 2026-06-12
 
 ### Changed

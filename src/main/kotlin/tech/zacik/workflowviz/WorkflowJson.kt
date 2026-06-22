@@ -16,9 +16,4 @@ object WorkflowJson {
             null // invalid/partial JSON while typing — ignore, keep last good render
         }
     }
-
-    /** Ordered list of state names as they appear in the workflow. */
-    fun stateNames(workflow: Map<*, *>): List<String> =
-        (workflow["states"] as? List<*>)?.filterIsInstance<Map<*, *>>()
-            ?.mapNotNull { it["name"] as? String } ?: emptyList()
 }
