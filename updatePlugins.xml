@@ -9,8 +9,8 @@
 <plugins>
     <plugin
             id="tech.zacik.workflowviz"
-            url="https://github.com/zacikpetr/workflow-visualizer/releases/download/v0.4.0/workflow-visualizer-0.4.0.zip"
-            version="0.4.0">
+            url="https://github.com/zacikpetr/workflow-visualizer/releases/download/v0.5.0/workflow-visualizer-0.5.0.zip"
+            version="0.5.0">
         <idea-version since-build="252"/>
         <name>Workflow Visualizer</name>
         <vendor email="zacik.petr@gmail.com" url="https://github.com/zacikpetr/workflow-visualizer">Petr Žáčík</vendor>
@@ -19,25 +19,14 @@
             PlantUML diagram, navigation, inspections, and semantic highlighting.
         ]]></description>
         <change-notes><![CDATA[
-            <b>0.4.0</b>
+            <b>0.5.0</b>
             <h3>Changed</h3>
             
-            <ul><li>The plugin download shrank from ~35 MB to ~26 MB (dropped unused PlantUML
-              extras), and the plugin's settings are now findable via the Settings
-              search box.</li><li>Zoom shortcuts additionally bind to ⌘ on macOS (<code>⌘+=</code> / <code>⌘+-</code>).</li></ul>
-            
-            <h3>Fixed</h3>
-            
-            <ul><li>Object forms of <code>start</code> / <code>end</code>, branch-level <code>end</code> and <code>compensatedBy</code> are
-              fully supported — no more false unreachable / unused / terminal errors, and
-              the diagram draws their edges.</li><li>Rename refactoring on state / function / event / error names works.</li><li>False &quot;Missing required properties 'do', 'document'&quot; errors from the
-              auto-applied v1.0 schema are gone.</li><li>While typing through invalid JSON the diagram keeps the last good render
-              instead of flickering.</li><li>State names with spaces or special characters no longer merge diagram nodes
-              or break click-to-navigate.</li><li>The diagram highlights the caret's state correctly right after switching
-              between workflow files.</li><li><code>start</code> keys nested deeper in the document (schedules, extensions) or in
-              unrelated JSON files are no longer flagged as missing states.</li><li>Lower background CPU use: no rendering while the tool window is hidden,
-              caret tracking no longer re-parses the file, zoom is clamped, and closing
-              the tool window releases its rendering resources.</li></ul>
+            <ul><li>The caret-to-diagram preview is now genuinely interactive: put the caret
+              anywhere inside a state and the diagram highlights it live. The highlight used
+              to be unreliable — often stuck on a neighbouring state, especially for states
+              whose name also names a function — so you'd see the wrong node lit up.</li><li>Clicking a state in the diagram reliably jumps to that state, even when a
+              function with the same name appears earlier in the file.</li></ul>
         ]]></change-notes>
     </plugin>
 </plugins>
