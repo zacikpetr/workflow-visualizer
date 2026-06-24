@@ -40,6 +40,7 @@ import javax.swing.JComponent
 import javax.swing.JLabel
 import javax.swing.JPanel
 import java.awt.BorderLayout
+import tech.zacik.workflowviz.settings.PathHighlightListener
 import tech.zacik.workflowviz.settings.WorkflowVizSettings
 import tech.zacik.workflowviz.settings.WorkflowVizSettingsListener
 
@@ -113,10 +114,13 @@ class WorkflowDiagramController(
     private fun buildToolbar(): JComponent {
         val zoomIn = ZoomInAction(panel)
         val zoomOut = ZoomOutAction(panel)
+        val highlightPath = HighlightPathAction()
         val group = DefaultActionGroup().apply {
             add(zoomIn)
             add(zoomOut)
             add(FitToWindowAction(panel))
+            addSeparator()
+            add(highlightPath)
             addSeparator()
             add(ExportSvgAction { lastSvg })
             add(ExportPumlAction { lastPuml })
@@ -133,6 +137,9 @@ class WorkflowDiagramController(
         // it holds focus (a code-built action has no keymap entry of its own).
         zoomIn.registerCustomShortcutSet(ZoomInAction.SHORTCUTS, root, this)
         zoomOut.registerCustomShortcutSet(ZoomOutAction.SHORTCUTS, root, this)
+        highlightPath.registerCustomShortcutSet(HighlightPathAction.SHORTCUTS, root, this)
+        // Honour the persisted focus-mode toggle on a freshly opened tool window.
+        panel.setPathHighlight(WorkflowVizSettings.getInstance().state.highlightSelectedPath)
         return toolbar.component
     }
 
@@ -174,11 +181,20 @@ class WorkflowDiagramController(
                 }
             },
         )
+        val appBus = ApplicationManager.getApplication().messageBus.connect(this)
         // Live-update on Settings Apply — badges / colors / label length toggles
         // re-render without waiting for the next document edit.
-        ApplicationManager.getApplication().messageBus.connect(this).subscribe(
+        appBus.subscribe(
             WorkflowVizSettingsListener.TOPIC,
             WorkflowVizSettingsListener { scheduleRender() },
+        )
+        // Focus-mode toggle: converge this panel on the shared global flag via a
+        // cheap DOM patch (no re-render), so a toggle in any project syncs here.
+        appBus.subscribe(
+            PathHighlightListener.TOPIC,
+            PathHighlightListener {
+                panel.setPathHighlight(WorkflowVizSettings.getInstance().state.highlightSelectedPath)
+            },
         )
         attachToSelectedEditor()
     }
@@ -303,7 +319,8 @@ class WorkflowDiagramController(
             mutationBadgeFields = service.mutationFieldSet(),
             dimUnreachable = settings.dimUnreachable,
         )
-        val puml = SwJsonToPuml.toPuml(workflow, config = config)
+        val result = SwJsonToPuml.toPumlResult(workflow, config = config)
+        val puml = result.puml
         if (puml == lastPuml) return // no-op edit (whitespace, comments) — skip the engine
         val svg = try {
             PlantUmlRenderer.toSvg(puml)
@@ -325,7 +342,7 @@ class WorkflowDiagramController(
             lastPuml = puml
             lastSvg = svg
             showPanel()
-            panel.setSvg(doc)
+            panel.setSvg(doc, result.nameToAlias)
         }
     }
 

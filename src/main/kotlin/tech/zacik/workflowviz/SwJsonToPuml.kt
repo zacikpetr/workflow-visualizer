@@ -169,11 +169,23 @@ object SwJsonToPuml {
     }
 
     /**
+     * PlantUML source plus the state-name → alias map. The alias is what PlantUML
+     * writes into each edge's `data-entity-1` / `data-entity-2` SVG attribute, so
+     * the map lets the diagram panel resolve a state to its outgoing edges (which
+     * carry only the alias, never the state name).
+     */
+    data class Result(val puml: String, val nameToAlias: Map<String, String>)
+
+    /**
      * @param workflow parsed .sw.json (see [WorkflowJson.parse])
      * @param locate   optional state name to emphasise (caret → locate)
      * @param config   diagram-rendering knobs (label length, error-edge colour)
      */
-    fun toPuml(workflow: Map<*, *>, locate: String? = null, config: Config = Config()): String {
+    fun toPuml(workflow: Map<*, *>, locate: String? = null, config: Config = Config()): String =
+        toPumlResult(workflow, locate, config).puml
+
+    /** [toPuml] plus the state-name → alias map (see [Result]). */
+    fun toPumlResult(workflow: Map<*, *>, locate: String? = null, config: Config = Config()): Result {
         val states = (workflow["states"] as? List<*>)?.filterIsInstance<Map<*, *>>() ?: emptyList()
         val start = startNameOf(workflow)
         // Effective names: unnamed states get a distinct placeholder so they
@@ -188,6 +200,9 @@ object SwJsonToPuml {
         // can't tell live from dead, so nothing gets dimmed).
         val reachable = if (config.dimUnreachable) reachableSet(workflow) else null
         val out = StringBuilder()
+        // Effective name → alias, captured as we declare states so the panel can
+        // map a located state to its edges' data-entity ids without recomputing.
+        val nameToAlias = LinkedHashMap<String, String>()
 
         out.appendLine("@startuml")
         out.appendLine("!pragma layout smetana")
@@ -204,6 +219,7 @@ object SwJsonToPuml {
         states.forEachIndexed { i, state ->
             val name = names[i]
             val alias = aliases.of(name)
+            nameToAlias[name] = alias
             val isUnreachable = reachable != null && name !in reachable
             // Strike the label through for unreachable nodes — mirrors the
             // `LIKE_UNUSED_SYMBOL` editor highlight for the same state name.
@@ -280,6 +296,6 @@ object SwJsonToPuml {
         }
 
         out.appendLine("@enduml")
-        return out.toString()
+        return Result(out.toString(), nameToAlias)
     }
 }

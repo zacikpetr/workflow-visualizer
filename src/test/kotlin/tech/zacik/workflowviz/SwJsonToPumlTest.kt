@@ -74,4 +74,47 @@ class SwJsonToPumlTest {
             assertEquals(name, StateUri.decode(StateUri.encode(name)))
         }
     }
+
+    @Test
+    fun `toPumlResult exposes the state name to alias map matching the edges`() {
+        val wf = WorkflowJson.parse(
+            """{"start":"A B","states":[
+                {"name":"A B","type":"operation","transition":"A_B"},
+                {"name":"A_B","type":"operation","end":true}]}""",
+        ) ?: error("fixture must parse")
+        val result = SwJsonToPuml.toPumlResult(wf)
+        // Map keys are the state names; values are the aliases used in the edges.
+        assertEquals("A_B", result.nameToAlias["A B"])
+        assertEquals("A_B_2", result.nameToAlias["A_B"])
+        assertTrue(result.puml.contains("A_B --> A_B_2"))
+    }
+
+    /**
+     * Guards the contract the diagram's focus mode depends on: PlantUML must wrap
+     * each edge in `<g class="link" data-entity-1="<sourceAlias>" …>`. If a future
+     * bundled PlantUML drops these attributes, the path highlight silently stops
+     * finding outgoing edges — this fails loudly instead.
+     */
+    @Test
+    fun `rendered SVG tags each edge with its source alias`() {
+        val wf = WorkflowJson.parse(
+            """{"start":"A","states":[
+                {"name":"A","type":"switch",
+                 "dataConditions":[{"name":"ok","condition":".x","transition":"B"}],
+                 "onErrors":[{"transition":"C"}]},
+                {"name":"B","type":"operation","end":true},
+                {"name":"C","type":"operation","end":true}]}""",
+        ) ?: error("fixture must parse")
+        val result = SwJsonToPuml.toPumlResult(wf)
+        val svg = PlantUmlRenderer.toSvg(result.puml)
+        val aliasA = result.nameToAlias.getValue("A")
+        assertTrue("edges must render as link groups", svg.contains("class=\"link\""))
+        assertTrue(
+            "A's outgoing edges must carry data-entity-1=\"$aliasA\"",
+            svg.contains("data-entity-1=\"$aliasA\""),
+        )
+        // A's two outgoing edges (the switch 'ok' branch + the error edge) target B and C.
+        assertTrue(svg.contains("data-entity-2=\"${result.nameToAlias.getValue("B")}\""))
+        assertTrue(svg.contains("data-entity-2=\"${result.nameToAlias.getValue("C")}\""))
+    }
 }

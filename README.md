@@ -118,12 +118,25 @@ inspection highlight.
 
 ![Unreachable state in diagram](images/08-unreachable.png)
 
+### Focus mode
+
+Dense workflows turn into a tangle of arrows. Toggle **focus mode** (toolbar
+button, or **⌥⌘P / Ctrl+Alt+P** while the tool window is focused) and the diagram
+thickens the **selected state's outgoing transitions** and dims every other edge —
+so you can trace where that state leads at a glance. The highlight follows your
+selection: move the caret into another state, or click one in the diagram, and its
+outgoing paths light up. Error (red) and compensation (dashed) edges keep their
+styling, so they stay recognisable while highlighted.
+
+<img src="images/10-focus-mode.png" alt="Focus mode" width="460" />
+
 ### Toolbar
 
 Actions in the tool window toolbar:
 
 - **Zoom In** / **Zoom Out** — `⌘/Ctrl+=` / `⌘/Ctrl+-` (also ⌘/Ctrl+scroll or pinch)
 - **Fit to Window** — reset zoom/pan to auto-fit
+- **Focus mode** — thicken the selected state's outgoing path, dim other edges (`⌥⌘P` / `Ctrl+Alt+P`)
 - **Export as SVG…** — save the rendered SVG
 - **Export as PUML…** — save the underlying PlantUML source
 

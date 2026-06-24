@@ -38,6 +38,12 @@ class WorkflowVizSettings : PersistentStateComponent<WorkflowVizSettings.State> 
         var colorErrorEdges: Boolean = true,
         /** Render states unreachable from `start` (and their outgoing edges) dimmed in the diagram. */
         var dimUnreachable: Boolean = true,
+        /**
+         * Focus mode: thicken the selected (located) state's outgoing transitions
+         * and dim every other edge, so its path stands out of a dense diagram.
+         * Toggled from the diagram toolbar; persisted so it survives restarts.
+         */
+        var highlightSelectedPath: Boolean = false,
         /** Annotate each state node with the runtime fields its actions mutate. */
         var mutationBadgesEnabled: Boolean = false,
         /**

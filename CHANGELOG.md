@@ -7,7 +7,15 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
-## [0.5.1] - 2026-06-22
+## [0.6.0] - 2026-06-25
+
+### Added
+- Focus mode: a toolbar toggle (also ⌥⌘P / Ctrl+Alt+P) that thickens the
+  selected state's outgoing transitions and dims every other edge, so you can
+  follow where a state leads through a dense tangle of arrows. The highlight
+  tracks your selection — move the caret into another state, or click one in the
+  diagram, and its outgoing paths light up. Highlighted edges keep their
+  styling, so red error edges and dashed compensation edges stay recognisable.
 
 ### Fixed
 - Clicking a state in the diagram now lands the caret in the same place as

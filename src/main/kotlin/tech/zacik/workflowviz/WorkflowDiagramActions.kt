@@ -5,7 +5,11 @@ import com.intellij.openapi.actionSystem.ActionUpdateThread
 import com.intellij.openapi.actionSystem.AnAction
 import com.intellij.openapi.actionSystem.AnActionEvent
 import com.intellij.openapi.actionSystem.CustomShortcutSet
+import com.intellij.openapi.actionSystem.ToggleAction
+import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.util.SystemInfo
+import tech.zacik.workflowviz.settings.PathHighlightListener
+import tech.zacik.workflowviz.settings.WorkflowVizSettings
 import com.intellij.openapi.fileChooser.FileChooserFactory
 import com.intellij.openapi.fileChooser.FileSaverDescriptor
 import com.intellij.openapi.project.Project
@@ -65,6 +69,41 @@ private fun zoomShortcuts(vararg keys: String): CustomShortcutSet {
     return CustomShortcutSet.fromString(
         *modifiers.flatMap { mod -> keys.map { "$mod $it" } }.toTypedArray(),
     )
+}
+
+/**
+ * Toggle focus mode: thicken the selected (located) state's outgoing transitions
+ * and dim every other edge, so the path out of the state you're on stands out of
+ * a dense diagram. The "selected" state is the caret-driven locate, so the
+ * highlight follows your cursor through the JSON (or a click in the diagram). The
+ * on/off state persists in [WorkflowVizSettings]; the keyboard shortcut is
+ * registered on the tool window component by the caller.
+ */
+class HighlightPathAction : ToggleAction(
+    "Highlight Selected State's Path",
+    "Thicken the selected state's outgoing transitions and dim every other edge",
+    AllIcons.General.Locate,
+) {
+    override fun isSelected(e: AnActionEvent): Boolean =
+        WorkflowVizSettings.getInstance().state.highlightSelectedPath
+
+    override fun setSelected(e: AnActionEvent, state: Boolean) {
+        WorkflowVizSettings.getInstance().state.highlightSelectedPath = state
+        // Single source of truth = the global flag. Broadcast so EVERY open
+        // diagram (this project's included) re-applies it via a cheap DOM patch;
+        // the action stays panel-agnostic and no panel is left out of sync.
+        ApplicationManager.getApplication().messageBus
+            .syncPublisher(PathHighlightListener.TOPIC).pathHighlightChanged()
+    }
+
+    override fun getActionUpdateThread(): ActionUpdateThread = ActionUpdateThread.EDT
+
+    companion object {
+        /** ⌥⌘P (mac) / Ctrl+Alt+P — registered on the tool window component by the caller. */
+        val SHORTCUTS: CustomShortcutSet = CustomShortcutSet.fromString(
+            if (SystemInfo.isMac) "meta alt P" else "control alt P",
+        )
+    }
 }
 
 /** Snap zoom/pan back to "fit the whole diagram" without changing the document. */

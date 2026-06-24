@@ -24,9 +24,12 @@
           <li>Mutation badges: per-state breakdown of the runtime fields each
               action sets (configurable list).</li>
           <li>Diagram dim for unreachable states + their outgoing edges.</li>
+          <li>Focus mode (toolbar toggle / ⌥⌘P / Ctrl+Alt+P): thicken the selected
+              state's outgoing transitions and dim every other edge to trace its
+              path through a dense diagram.</li>
           <li>Semantic coloring of references and state names by type (configurable
               palette via Settings → Editor → Color Scheme).</li>
-          <li>Toolbar: Zoom In, Zoom Out, Fit to window, Export as SVG, Export as PUML.</li>
+          <li>Toolbar: Zoom In, Zoom Out, Fit to window, focus mode, Export as SVG, Export as PUML.</li>
         </ul>
     ]]></description>
     <!-- change-notes is generated at build time from CHANGELOG.md by the

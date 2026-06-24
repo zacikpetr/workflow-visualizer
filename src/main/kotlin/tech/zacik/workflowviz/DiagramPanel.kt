@@ -88,6 +88,20 @@ class DiagramPanel(private val onStateClicked: (String) -> Unit) : JPanel(Border
     @Volatile
     private var restoreListener: UpdateManagerListener? = null
 
+    // ── path highlight (focus the located state's outgoing edges) ────────────
+    /** Whether focus mode is on — thicken the located state's outgoing edges, dim every other edge. */
+    @Volatile
+    private var pathHighlightEnabled: Boolean = false
+    /** State name → PlantUML alias (the SVG edge `data-entity-1/2`), from the last [setSvg]. */
+    @Volatile
+    private var nameToAlias: Map<String, String> = emptyMap()
+    /** Edge attributes the highlight patched, with their pre-patch values, for restore. */
+    @Volatile
+    private var pathHighlightMods: List<AttrMod> = emptyList()
+
+    /** One patched attribute and its original value (`null` = the attribute was absent). */
+    private class AttrMod(val el: Element, val attr: String, val original: String?)
+
     init {
         add(canvas, BorderLayout.CENTER)
         wireZoomAndPan()
@@ -217,7 +231,7 @@ class DiagramPanel(private val onStateClicked: (String) -> Unit) : JPanel(Border
      * 1.0, the typical "overview" state) we let Batik auto-fit the new SVG
      * so a freshly grown diagram stays fully visible. First load = always fit.
      */
-    fun setSvg(doc: SVGDocument) {
+    fun setSvg(doc: SVGDocument, nameToAlias: Map<String, String> = emptyMap()) {
         val previousRT = canvas.renderingTransform
         val preserve = previousRT != null && previousRT.scaleX >= 1.0
 
@@ -229,6 +243,10 @@ class DiagramPanel(private val onStateClicked: (String) -> Unit) : JPanel(Border
         // Tracking state belongs to the old document; clear it before swap.
         locatedShape = null
         locatedOriginalFill = null
+        // The patched edge elements belong to the old document; the new one
+        // is re-patched from scratch below. Keep the name→alias map for it.
+        pathHighlightMods = emptyList()
+        this.nameToAlias = nameToAlias
         if (preserve) {
             // Batik internally calls setRenderingTransform(initialTransform)
             // *between* gvtBuildCompleted and managerStarted (after recomputing
@@ -248,9 +266,12 @@ class DiagramPanel(private val onStateClicked: (String) -> Unit) : JPanel(Border
             canvas.addUpdateManagerListener(listener)
         }
         canvas.setSVGDocument(doc)
-        // Re-apply current locate via the update queue — runs once UpdateManager
-        // is alive for the new document, so the patch triggers an auto-repaint.
-        if (currentLocate != null) inUpdateQueue { applyLocate(currentLocate) }
+        // Re-apply current locate + path highlight via the update queue — runs
+        // once UpdateManager is alive for the new document, so the patches trigger
+        // an auto-repaint. applyLocate(null) is a safe no-op.
+        if (currentLocate != null || pathHighlightEnabled) {
+            inUpdateQueue { applyLocate(currentLocate); applyPathHighlight() }
+        }
     }
 
     /**
@@ -274,7 +295,22 @@ class DiagramPanel(private val onStateClicked: (String) -> Unit) : JPanel(Border
      */
     fun setLocate(stateName: String?) {
         currentLocate = stateName
-        inUpdateQueue { applyLocate(stateName) }
+        // The located state drives the path highlight too, so re-apply both —
+        // a new selection means a different set of outgoing edges. Both read
+        // currentLocate (not the captured arg) so node fill and edge highlight
+        // never diverge if the field changes before the runnable executes.
+        inUpdateQueue { applyLocate(currentLocate); applyPathHighlight() }
+    }
+
+    /**
+     * Toggle focus mode: thicken the located state's outgoing transitions and dim
+     * every other edge so its path stands out of a dense diagram. Pure DOM patch —
+     * no PlantUML re-render. Re-applied after each [setSvg] and whenever the
+     * located state changes.
+     */
+    fun setPathHighlight(enabled: Boolean) {
+        pathHighlightEnabled = enabled
+        inUpdateQueue { applyPathHighlight() }
     }
 
     /**
@@ -319,6 +355,91 @@ class DiagramPanel(private val onStateClicked: (String) -> Unit) : JPanel(Border
         locatedShape = shape
         bringIntoView(shape)
     }
+
+    /**
+     * Focus mode: thicken the located state's outgoing transitions and dim every
+     * other edge. Restores all prior patches first; a no-op when disabled or
+     * nothing is located. Runs on Batik's update thread (via [setPathHighlight] /
+     * [setLocate] / [setSvg]).
+     *
+     * PlantUML wraps each transition in `<g class="link" data-entity-1="SRC"
+     * data-entity-2="TGT">`, so the located state's outgoing edges are exactly the
+     * link groups whose `data-entity-1` is its alias. Edge stroke lives in the
+     * child shapes' `style` attribute (not a standalone `stroke`), so we rewrite
+     * that string and keep the colour + dash pattern — red error and dashed
+     * compensation edges stay recognisable while highlighted.
+     */
+    private fun applyPathHighlight() {
+        val doc = canvas.svgDocument ?: return
+        // Restore previous patches — only those still in the live document; a
+        // patch from a swapped-out document must not be touched.
+        for (m in pathHighlightMods) {
+            if (m.el.ownerDocument === doc) {
+                if (m.original != null) m.el.setAttribute(m.attr, m.original)
+                else m.el.removeAttribute(m.attr)
+            }
+        }
+        pathHighlightMods = emptyList()
+
+        val locate = currentLocate
+        if (!pathHighlightEnabled || locate == null) return
+        val alias = nameToAlias[locate] ?: return
+
+        // Partition edges into the located state's outgoing ones and the rest.
+        val outgoingShapes = mutableListOf<Element>()
+        val otherEdges = mutableListOf<Element>()
+        val groups = doc.getElementsByTagName("g")
+        for (i in 0 until groups.length) {
+            val g = groups.item(i) as? Element ?: continue
+            if (g.getAttribute("class") != "link") continue
+            if (g.getAttribute("data-entity-1") == alias) outgoingShapes += childShapes(g)
+            else otherEdges += g
+        }
+        // Nothing to focus (a dead-end state) — leave the diagram untouched rather
+        // than dimming every edge into a uniform haze with nothing emphasised.
+        if (outgoingShapes.isEmpty()) return
+
+        val mods = mutableListOf<AttrMod>()
+        // Outgoing edges — thicken line + arrowhead (colour + dashes preserved).
+        for (shape in outgoingShapes) {
+            val style = if (shape.hasAttribute("style")) shape.getAttribute("style") else null
+            mods += AttrMod(shape, "style", style)
+            shape.setAttribute("style", withStrokeWidth(style ?: "", PATH_HIGHLIGHT_WIDTH))
+        }
+        // Every other edge — dim the whole group so the path stands out.
+        for (g in otherEdges) {
+            val opacity = if (g.hasAttribute("opacity")) g.getAttribute("opacity") else null
+            mods += AttrMod(g, "opacity", opacity)
+            g.setAttribute("opacity", PATH_DIM_OPACITY)
+        }
+        pathHighlightMods = mods
+    }
+
+    /** Direct `<path>` / `<polygon>` children of an edge group (skips the `<text>` label). */
+    private fun childShapes(group: Element): List<Element> {
+        val out = mutableListOf<Element>()
+        val children = group.childNodes
+        for (i in 0 until children.length) {
+            val c = children.item(i) as? Element ?: continue
+            if (c.localName == "path" || c.localName == "polygon") out += c
+        }
+        return out
+    }
+
+    /**
+     * [style] with its `stroke-width` set to [width], preserving every other
+     * declaration (notably `stroke` colour and `stroke-dasharray`). Appends the
+     * property when the style has none.
+     */
+    private fun withStrokeWidth(style: String, width: String): String =
+        if (STROKE_WIDTH_RE.containsMatchIn(style)) {
+            // Lambda overload → the result is a literal replacement; a `$` or `\`
+            // in a future (e.g. settings-driven) width can't be taken as a group ref.
+            STROKE_WIDTH_RE.replace(style) { "stroke-width:$width" }
+        } else {
+            val sep = if (style.isEmpty() || style.endsWith(";")) "" else ";"
+            "$style${sep}stroke-width:$width;"
+        }
 
     /**
      * If [shape]'s on-screen rectangle isn't fully visible in the canvas viewport,
@@ -431,5 +552,13 @@ class DiagramPanel(private val onStateClicked: (String) -> Unit) : JPanel(Border
         /** Rendering-transform scale bounds — Batik rasterizes at the target scale. */
         private const val MIN_SCALE = 0.05
         private const val MAX_SCALE = 40.0
+
+        // ── focus-mode (path highlight) tuning ──
+        /** Stroke width (user units) for the located state's outgoing edges; base is 1. */
+        private const val PATH_HIGHLIGHT_WIDTH = "3"
+        /** Group opacity applied to every other edge in focus mode (faint, not hidden). */
+        private const val PATH_DIM_OPACITY = "0.2"
+        /** Matches the `stroke-width:<n>` declaration inside an SVG `style` attribute. */
+        private val STROKE_WIDTH_RE = Regex("stroke-width\\s*:\\s*[^;]*")
     }
 }
