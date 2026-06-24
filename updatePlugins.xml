@@ -9,8 +9,8 @@
 <plugins>
     <plugin
             id="tech.zacik.workflowviz"
-            url="https://github.com/zacikpetr/workflow-visualizer/releases/download/v0.5.0/workflow-visualizer-0.5.0.zip"
-            version="0.5.0">
+            url="https://github.com/zacikpetr/workflow-visualizer/releases/download/v0.6.0/workflow-visualizer-0.6.0.zip"
+            version="0.6.0">
         <idea-version since-build="252"/>
         <name>Workflow Visualizer</name>
         <vendor email="zacik.petr@gmail.com" url="https://github.com/zacikpetr/workflow-visualizer">Petr Žáčík</vendor>
@@ -19,14 +19,20 @@
             PlantUML diagram, navigation, inspections, and semantic highlighting.
         ]]></description>
         <change-notes><![CDATA[
-            <b>0.5.0</b>
-            <h3>Changed</h3>
+            <b>0.6.0</b>
+            <h3>Added</h3>
             
-            <ul><li>The caret-to-diagram preview is now genuinely interactive: put the caret
-              anywhere inside a state and the diagram highlights it live. The highlight used
-              to be unreliable — often stuck on a neighbouring state, especially for states
-              whose name also names a function — so you'd see the wrong node lit up.</li><li>Clicking a state in the diagram reliably jumps to that state, even when a
-              function with the same name appears earlier in the file.</li></ul>
+            <ul><li>Focus mode: a toolbar toggle (also ⌥⌘P / Ctrl+Alt+P) that thickens the
+              selected state's outgoing transitions and dims every other edge, so you can
+              follow where a state leads through a dense tangle of arrows. The highlight
+              tracks your selection — move the caret into another state, or click one in the
+              diagram, and its outgoing paths light up. Highlighted edges keep their
+              styling, so red error edges and dashed compensation edges stay recognisable.</li></ul>
+            
+            <h3>Fixed</h3>
+            
+            <ul><li>Clicking a state in the diagram now lands the caret in the same place as
+              Go to Declaration (Ctrl/Cmd+B), instead of one character off.</li></ul>
         ]]></change-notes>
     </plugin>
 </plugins>
