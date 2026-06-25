@@ -70,6 +70,10 @@ class WorkflowDiagramController(
     private val root = SimpleToolWindowPanel(true, true).also { it.setContent(content) }
     private val hint = JLabel("Open a .sw.json file", JLabel.CENTER)
     private val panel = DiagramPanel(::onStateClicked)
+    // Focus-mode toggle. Held as a field so its shortcut can be bound to BOTH the
+    // tool window and the active .sw.json editor — clicking a state focuses the
+    // editor, which would otherwise put the diagram-scoped shortcut out of reach.
+    private val highlightPath = HighlightPathAction()
     // Controller-scoped coroutines, cancelled in dispose(). No dispatcher in the
     // context → launches default to Dispatchers.Default (background); UI work
     // hops to Dispatchers.EDT explicitly. SupervisorJob so one failed render
@@ -114,7 +118,6 @@ class WorkflowDiagramController(
     private fun buildToolbar(): JComponent {
         val zoomIn = ZoomInAction(panel)
         val zoomOut = ZoomOutAction(panel)
-        val highlightPath = HighlightPathAction()
         val group = DefaultActionGroup().apply {
             add(zoomIn)
             add(zoomOut)
@@ -230,6 +233,13 @@ class WorkflowDiagramController(
         val listeners = Disposer.newDisposable("wfviz-editor")
         Disposer.register(this, listeners)
         editorListeners = listeners
+
+        // Also bind the focus-mode shortcut to this .sw.json editor, so it keeps
+        // working after a diagram click moves focus here. Safe in JSON: ⌥⌘P /
+        // Ctrl+Alt+P is Extract Parameter — a code refactoring that does nothing
+        // in JSON — so we collide with nothing. Scoped to this editor via
+        // `listeners`, so it never reaches non-workflow files.
+        highlightPath.registerCustomShortcutSet(HighlightPathAction.SHORTCUTS, ed.contentComponent, listeners)
 
         ed.document.addDocumentListener(object : DocumentListener {
             override fun documentChanged(e: DocumentEvent) = scheduleRender()

@@ -7,6 +7,11 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+### Fixed
+- The focus-mode shortcut (⌥⌘P / Ctrl+Alt+P) now also works while editing the
+  `.sw.json` file, not only when the diagram has focus — so it keeps working
+  after you click a state in the diagram (which moves focus to the editor).
+
 ## [0.6.0] - 2026-06-25
 
 ### Added
